@@ -12,7 +12,8 @@ async def service_identity(request:Request,x_service_token:str=Header(...),db:As
     try: credential_id,secret=x_service_token.split(".",1); key=uuid.UUID(credential_id)
     except (ValueError,AttributeError): raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid service credential")
     cache_key=f"netsentinel:service-credential:{key}"
-    cached=await request.app.state.redis.get(cache_key)
+    try: cached=await request.app.state.redis.get(cache_key)
+    except Exception as exc: raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,"Telemetry authentication cache unavailable") from exc
     if cached:
         cached_hash,cached_kind=cached.split(":",1)
         if not hmac.compare_digest(derive_secret(secret),cached_hash): raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid service credential")
@@ -22,5 +23,6 @@ async def service_identity(request:Request,x_service_token:str=Header(...),db:As
     invalid=not credential or credential.revoked_at is not None or (credential.expires_at and credential.expires_at<=now)
     expected=credential.secret_hash if credential else "0"*64
     if invalid or not hmac.compare_digest(derive_secret(secret),expected): raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid service credential")
-    await request.app.state.redis.set(cache_key,f"{credential.secret_hash}:{credential.kind}",ex=60)
+    try: await request.app.state.redis.set(cache_key,f"{credential.secret_hash}:{credential.kind}",ex=60)
+    except Exception as exc: raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,"Telemetry authentication cache unavailable") from exc
     return credential

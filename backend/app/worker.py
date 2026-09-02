@@ -27,7 +27,7 @@ async def persist(events):
 async def move_dlq(redis,message_id,fields,reason,attempts):
     now=datetime.now(timezone.utc).isoformat(); first=await redis.hget(failure_key,message_id) or now
     await redis.xadd(settings.telemetry_dlq_stream,{"original_event":fields.get("event",""),"failure_reason":reason[:500],"attempts":str(attempts),"first_failure_time":first,"last_failure_time":now,"consumer_identity":consumer})
-    await redis.xack(settings.telemetry_stream,settings.telemetry_group,message_id); await redis.hdel(attempt_key,message_id); await redis.hdel(failure_key,message_id); await redis.incr("netsentinel:metrics:dlq_count")
+    await redis.xack(settings.telemetry_stream,settings.telemetry_group,message_id); await redis.xdel(settings.telemetry_stream,message_id); await redis.hdel(attempt_key,message_id); await redis.hdel(failure_key,message_id); await redis.incr("netsentinel:metrics:dlq_count")
     log.error("telemetry_dlq",message_id=message_id,attempts=attempts,reason=reason[:200])
 async def process(redis,messages):
     valid=[]; ids=[]; fields_by_id=dict(messages)
@@ -37,7 +37,7 @@ async def process(redis,messages):
     if not valid:return
     started=time.perf_counter()
     try:
-        persisted,duplicates=await persist(valid); await redis.xack(settings.telemetry_stream,settings.telemetry_group,*ids)
+        persisted,duplicates=await persist(valid); await redis.xack(settings.telemetry_stream,settings.telemetry_group,*ids); await redis.xdel(settings.telemetry_stream,*ids)
         async with redis.pipeline(transaction=False) as pipe:
             pipe.hdel(attempt_key,*ids); pipe.hdel(failure_key,*ids); pipe.incrby("netsentinel:metrics:events_persisted",persisted); pipe.incrby("netsentinel:metrics:duplicates_ignored",duplicates); pipe.lpush("netsentinel:metrics:batch_write_latency_ms",f"{(time.perf_counter()-started)*1000:.3f}"); pipe.ltrim("netsentinel:metrics:batch_write_latency_ms",0,9999); await pipe.execute()
         log.info("telemetry_batch_persisted",received=len(valid),persisted=persisted,duplicates=duplicates)
