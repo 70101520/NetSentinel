@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     agent_heartbeat_timeout_seconds: int = Field(default=180, ge=30)
     cors_origins: str = ""
     log_level: str = "INFO"
+    db_pool_size: int = Field(default=10, ge=2, le=100)
+    db_max_overflow: int = Field(default=20, ge=0, le=200)
+    max_page_size: int = Field(default=100, ge=20, le=500)
     @field_validator("jwt_secret")
     @classmethod
     def reject_placeholder(cls, value: str):

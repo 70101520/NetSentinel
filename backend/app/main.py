@@ -1,7 +1,7 @@
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from redis.asyncio import Redis
@@ -12,7 +12,7 @@ from app.config import settings
 from app.db import engine, get_db
 from app.models import Device, Policy, PolicyRule, User
 from app.policy import evaluate
-from app.schemas import Decision, DecisionRequest, Token
+from app.schemas import Decision, DecisionRequest, DevicePage, Token
 from app.security import issue_token, require, verify_password
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
@@ -45,10 +45,14 @@ async def token(request:Request, form:OAuth2PasswordRequestForm=Depends(), db:As
         await record(db,request,user,"auth.login","session",None,"denied"); await db.commit(); raise HTTPException(401,"Invalid credentials")
     await record(db,request,user,"auth.login","session",None,"success"); await db.commit()
     return Token(access_token=issue_token(user),expires_in=settings.access_token_minutes*60)
-@app.get("/api/v1/devices")
-async def devices(db:AsyncSession=Depends(get_db), _:User=Depends(require("devices.view"))):
-    rows=(await db.scalars(select(Device).order_by(Device.hostname).limit(500))).all(); cutoff=datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds
-    return [{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":d.ip_address,"os_name":d.os_name,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"online" if d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline"} for d in rows]
+@app.get("/api/v1/devices",response_model=DevicePage)
+async def devices(page:int=Query(1,ge=1),page_size:int=Query(50,ge=1),db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
+    page_size=min(page_size,settings.max_page_size)
+    total=await db.scalar(select(func.count()).select_from(Device)) or 0
+    rows=(await db.scalars(select(Device).order_by(Device.hostname,Device.id).offset((page-1)*page_size).limit(page_size))).all()
+    cutoff=datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds
+    items=[{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":d.ip_address,"os_name":d.os_name,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"online" if d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline"} for d in rows]
+    return {"items":items,"meta":{"page":page,"page_size":page_size,"total":total,"pages":(total+page_size-1)//page_size}}
 @app.post("/api/v1/policies/evaluate",response_model=Decision)
 async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Depends(require("policies.view"))):
     policy=await db.get(Policy,body.policy_id)
