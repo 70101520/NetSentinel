@@ -1,0 +1,79 @@
+import uuid
+from datetime import datetime
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.db import Base
+
+class User(Base):
+    __tablename__="users"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str]=mapped_column(String(320), unique=True)
+    password_hash: Mapped[str]=mapped_column(Text)
+    is_active: Mapped[bool]=mapped_column(Boolean, default=True)
+    failed_logins: Mapped[int]=mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    roles: Mapped[list["Role"]]=relationship(secondary="user_roles", lazy="selectin")
+
+class Role(Base):
+    __tablename__="roles"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(100), unique=True)
+    permissions: Mapped[list["Permission"]]=relationship(secondary="role_permissions", lazy="selectin")
+class Permission(Base):
+    __tablename__="permissions"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str]=mapped_column(String(100), unique=True)
+class UserRole(Base):
+    __tablename__="user_roles"
+    user_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("users.id"), primary_key=True)
+    role_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("roles.id"), primary_key=True)
+class RolePermission(Base):
+    __tablename__="role_permissions"
+    role_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("roles.id"), primary_key=True)
+    permission_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("permissions.id"), primary_key=True)
+class Device(Base):
+    __tablename__="devices"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    device_identifier: Mapped[str]=mapped_column(String(200), unique=True)
+    hostname: Mapped[str]=mapped_column(String(255))
+    username: Mapped[str|None]=mapped_column(String(255))
+    ip_address: Mapped[str|None]=mapped_column(INET)
+    os_name: Mapped[str|None]=mapped_column(String(100))
+    os_version: Mapped[str|None]=mapped_column(String(100))
+    agent_version: Mapped[str|None]=mapped_column(String(50))
+    vlan: Mapped[str|None]=mapped_column(String(100))
+    first_seen: Mapped[datetime]=mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_heartbeat: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    credential_revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    metadata_: Mapped[dict]=mapped_column("metadata", JSONB, default=dict)
+class Policy(Base):
+    __tablename__="policies"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(200), unique=True)
+    default_action: Mapped[str]=mapped_column(String(10), default="BLOCK")
+    active_version: Mapped[int]=mapped_column(Integer, default=1)
+class PolicyRule(Base):
+    __tablename__="policy_rules"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    policy_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("policies.id", ondelete="CASCADE"))
+    version: Mapped[int]=mapped_column(Integer)
+    priority: Mapped[int]=mapped_column(Integer)
+    action: Mapped[str]=mapped_column(String(10))
+    domain_pattern: Mapped[str]=mapped_column(String(253))
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    enabled: Mapped[bool]=mapped_column(Boolean, default=True)
+class AuditEvent(Base):
+    __tablename__="audit_events"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), server_default=func.now())
+    actor_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    action: Mapped[str]=mapped_column(String(150))
+    resource_type: Mapped[str]=mapped_column(String(100))
+    resource_id: Mapped[str|None]=mapped_column(String(200))
+    source_ip: Mapped[str|None]=mapped_column(INET)
+    previous_value: Mapped[dict|None]=mapped_column(JSONB)
+    new_value: Mapped[dict|None]=mapped_column(JSONB)
+    result: Mapped[str]=mapped_column(String(30))
+    request_id: Mapped[str]=mapped_column(String(64))

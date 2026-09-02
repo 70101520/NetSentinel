@@ -1,0 +1,60 @@
+name: netsentinel
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-netsentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-netsentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes', --maxmemory-policy, allkeys-lru]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+    restart: unless-stopped
+  api:
+    build: ./backend
+    env_file: .env
+    command: [sh, -c, 'alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000']
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [edge, data]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+  worker:
+    build: ./backend
+    env_file: .env
+    command: [python, -m, app.worker]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [data]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+  portal:
+    build: ./frontend
+    depends_on: [api]
+    ports: ['8080:8080']
+    networks: [edge]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+networks:
+  edge: {}
+  data: {internal: true}
+volumes:
+  postgres-data: {}
+  redis-data: {}
