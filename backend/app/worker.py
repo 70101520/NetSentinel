@@ -1,4 +1,4 @@
-import asyncio,json,os,signal,socket,time
+import asyncio,json,os,signal,socket,time,uuid
 from datetime import datetime,timezone
 import structlog
 from redis.asyncio import Redis
@@ -14,7 +14,8 @@ async def ensure_group(redis):
         if "BUSYGROUP" not in str(exc): raise
 def decode(fields):
     e=json.loads(fields["event"])
-    return {"id":e["event_id"],"occurred_at":e["event_time"],"device_id":e.get("device_id"),"username":e.get("username"),"hostname":e.get("hostname"),"source_ip":e.get("source_ip"),"destination_ip":e.get("destination_ip"),"domain":e["domain"],"url":e.get("url"),"protocol":e["protocol"],"port":e["port"],"action":e["action"],"policy_id":e.get("policy_id"),"category":e.get("category"),"bytes_up":e.get("bytes_uploaded",0),"bytes_down":e.get("bytes_downloaded",0),"idempotency_key":e["event_id"]}
+    parse_uuid=lambda value: uuid.UUID(value) if value else None
+    return {"id":uuid.UUID(e["event_id"]),"occurred_at":datetime.fromisoformat(e["event_time"].replace("Z","+00:00")),"device_id":parse_uuid(e.get("device_id")),"username":e.get("username"),"hostname":e.get("hostname"),"source_ip":e.get("source_ip"),"destination_ip":e.get("destination_ip"),"domain":e["domain"],"url":e.get("url"),"protocol":e["protocol"],"port":e["port"],"action":e["action"],"policy_id":parse_uuid(e.get("policy_id")),"category":e.get("category"),"bytes_up":e.get("bytes_uploaded",0),"bytes_down":e.get("bytes_downloaded",0),"idempotency_key":e["event_id"]}
 async def persist(events):
     registry=[{"event_id":e["id"],"event_time":e["occurred_at"]} for e in events]
     async with SessionLocal() as db:
