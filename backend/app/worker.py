@@ -2,7 +2,7 @@ import asyncio,json,os,signal,socket,time,uuid
 from datetime import datetime,timezone
 import structlog
 from redis.asyncio import Redis
-from sqlalchemy.exc import DBAPIError,InterfaceError,OperationalError,TimeoutError as SQLAlchemyTimeoutError
+from sqlalchemy.exc import DBAPIError,DataError,IntegrityError,InterfaceError,OperationalError,TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.dialects.postgresql import insert
 from app.config import settings
 from app.db import SessionLocal,engine
@@ -12,7 +12,7 @@ attempt_key="netsentinel:telemetry:attempts"; failure_key="netsentinel:telemetry
 state_key="netsentinel:telemetry:worker-state"
 TRANSIENT_DB_ERRORS=(OperationalError,InterfaceError,SQLAlchemyTimeoutError,DBAPIError,ConnectionError,TimeoutError)
 def is_retryable(exc):
-    return isinstance(exc,TRANSIENT_DB_ERRORS)
+    return not isinstance(exc,(DataError,IntegrityError)) and isinstance(exc,TRANSIENT_DB_ERRORS)
 async def ensure_group(redis):
     try: await redis.xgroup_create(settings.telemetry_stream,settings.telemetry_group,id="0",mkstream=True)
     except Exception as exc:
