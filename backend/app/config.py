@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=20, ge=0, le=200)
     max_page_size: int = Field(default=100, ge=20, le=500)
     service_token_pepper: str = Field(min_length=32)
+    service_credential_cache_ttl_seconds: int = Field(default=60, ge=1, le=3600)
     telemetry_stream: str = "netsentinel:telemetry"
     telemetry_group: str = "telemetry-workers"
     telemetry_dlq_stream: str = "netsentinel:telemetry:dlq"

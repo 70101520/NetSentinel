@@ -2,12 +2,17 @@ import asyncio,json,os,signal,socket,time,uuid
 from datetime import datetime,timezone
 import structlog
 from redis.asyncio import Redis
+from sqlalchemy.exc import DBAPIError,InterfaceError,OperationalError,TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.dialects.postgresql import insert
 from app.config import settings
 from app.db import SessionLocal,engine
 from app.models import ProxyEvent,TelemetryEventId
 log=structlog.get_logger("telemetry_worker"); consumer=f"{socket.gethostname()}-{os.getpid()}"; stopping=asyncio.Event()
 attempt_key="netsentinel:telemetry:attempts"; failure_key="netsentinel:telemetry:first-failure"
+state_key="netsentinel:telemetry:worker-state"
+TRANSIENT_DB_ERRORS=(OperationalError,InterfaceError,SQLAlchemyTimeoutError,DBAPIError,ConnectionError,TimeoutError)
+def is_retryable(exc):
+    return isinstance(exc,TRANSIENT_DB_ERRORS)
 async def ensure_group(redis):
     try: await redis.xgroup_create(settings.telemetry_stream,settings.telemetry_group,id="0",mkstream=True)
     except Exception as exc:
@@ -39,16 +44,18 @@ async def process(redis,messages):
     try:
         persisted,duplicates=await persist(valid); await redis.xack(settings.telemetry_stream,settings.telemetry_group,*ids); await redis.xdel(settings.telemetry_stream,*ids)
         async with redis.pipeline(transaction=False) as pipe:
-            pipe.hdel(attempt_key,*ids); pipe.hdel(failure_key,*ids); pipe.incrby("netsentinel:metrics:events_persisted",persisted); pipe.incrby("netsentinel:metrics:duplicates_ignored",duplicates); pipe.lpush("netsentinel:metrics:batch_write_latency_ms",f"{(time.perf_counter()-started)*1000:.3f}"); pipe.ltrim("netsentinel:metrics:batch_write_latency_ms",0,9999); await pipe.execute()
+            pipe.hdel(attempt_key,*ids); pipe.hdel(failure_key,*ids); pipe.delete(state_key); pipe.incrby("netsentinel:metrics:events_persisted",persisted); pipe.incrby("netsentinel:metrics:duplicates_ignored",duplicates); pipe.lpush("netsentinel:metrics:batch_write_latency_ms",f"{(time.perf_counter()-started)*1000:.3f}"); pipe.ltrim("netsentinel:metrics:batch_write_latency_ms",0,9999); await pipe.execute()
         log.info("telemetry_batch_persisted",received=len(valid),persisted=persisted,duplicates=duplicates)
     except Exception as exc:
-        await redis.incr("netsentinel:metrics:failed_db_batches"); now=datetime.now(timezone.utc).isoformat(); retry=[]
+        await redis.incr("netsentinel:metrics:failed_db_batches"); now=datetime.now(timezone.utc).isoformat(); retry=[]; transient=is_retryable(exc)
         for message_id in ids:
             attempts=await redis.hincrby(attempt_key,message_id,1); await redis.hsetnx(failure_key,message_id,now)
-            if attempts>=settings.telemetry_max_attempts: await move_dlq(redis,message_id,fields_by_id[message_id],type(exc).__name__,attempts)
+            if not transient and attempts>=settings.telemetry_max_attempts: await move_dlq(redis,message_id,fields_by_id[message_id],type(exc).__name__,attempts)
             else: retry.append(attempts)
         if retry: await redis.incrby("netsentinel:metrics:retries",len(retry))
-        delay=min(settings.telemetry_db_retry_base_seconds*(2**(max(retry,default=1)-1)),30); log.error("telemetry_db_failure",count=len(valid),error_type=type(exc).__name__,retry_seconds=delay); await asyncio.sleep(delay)
+        delay=min(settings.telemetry_db_retry_base_seconds*(2**min(max(retry,default=1)-1,10)),30)
+        await redis.hset(state_key,mapping={"status":"blocked" if transient else "degraded","reason":type(exc).__name__,"since":now,"retry_seconds":str(delay)}); await redis.expire(state_key,300)
+        log.error("telemetry_db_failure",count=len(valid),error_type=type(exc).__name__,retryable=transient,retry_seconds=delay); await asyncio.sleep(delay)
 async def reclaim(redis):
     result=await redis.xautoclaim(settings.telemetry_stream,settings.telemetry_group,consumer,settings.telemetry_reclaim_idle_ms,"0-0",count=settings.telemetry_worker_batch_size)
     return result[1] if len(result)>1 else []

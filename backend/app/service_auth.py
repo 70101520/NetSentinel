@@ -8,6 +8,9 @@ from app.db import get_db
 from app.models import ServiceCredential
 def derive_secret(value:str)->str:
     return hmac.new(settings.service_token_pepper.encode(),value.encode(),hashlib.sha256).hexdigest()
+def credential_cache_ttl(expires_at,now):
+    if not expires_at:return settings.service_credential_cache_ttl_seconds
+    return min(settings.service_credential_cache_ttl_seconds,max(1,int((expires_at-now).total_seconds())))
 async def service_identity(request:Request,x_service_token:str=Header(...),db:AsyncSession=Depends(get_db))->ServiceCredential:
     try: credential_id,secret=x_service_token.split(".",1); key=uuid.UUID(credential_id)
     except (ValueError,AttributeError): raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid service credential")
@@ -23,6 +26,7 @@ async def service_identity(request:Request,x_service_token:str=Header(...),db:As
     invalid=not credential or credential.revoked_at is not None or (credential.expires_at and credential.expires_at<=now)
     expected=credential.secret_hash if credential else "0"*64
     if invalid or not hmac.compare_digest(derive_secret(secret),expected): raise HTTPException(status.HTTP_401_UNAUTHORIZED,"Invalid service credential")
-    try: await request.app.state.redis.set(cache_key,f"{credential.secret_hash}:{credential.kind}",ex=60)
+    ttl=credential_cache_ttl(credential.expires_at,now)
+    try: await request.app.state.redis.set(cache_key,f"{credential.secret_hash}:{credential.kind}",ex=ttl)
     except Exception as exc: raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,"Telemetry authentication cache unavailable") from exc
     return credential
