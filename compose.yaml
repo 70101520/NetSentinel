@@ -50,6 +50,7 @@ services:
       redis: {condition: service_healthy}
     networks: [data]
     restart: unless-stopped
+    stop_grace_period: 30s
     security_opt: [no-new-privileges:true]
     mem_limit: 512m
     cpus: 1.0
