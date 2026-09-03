@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
@@ -77,3 +77,30 @@ class AuditEvent(Base):
     new_value: Mapped[dict|None]=mapped_column(JSONB)
     result: Mapped[str]=mapped_column(String(30))
     request_id: Mapped[str]=mapped_column(String(64))
+class ServiceCredential(Base):
+    __tablename__="service_credentials"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(150), unique=True)
+    kind: Mapped[str]=mapped_column(String(30))
+    secret_hash: Mapped[str]=mapped_column(String(64))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+class TelemetryEventId(Base):
+    __tablename__="event_ids"
+    __table_args__={"schema":"telemetry"}
+    event_id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_time: Mapped[datetime]=mapped_column(DateTime(timezone=True))
+    received_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), server_default=func.now())
+class ProxyEvent(Base):
+    __tablename__="proxy_events"; __table_args__={"schema":"telemetry"}
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True)
+    occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),primary_key=True)
+    received_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    device_id: Mapped[uuid.UUID|None]=mapped_column(UUID(as_uuid=True)); user_id: Mapped[uuid.UUID|None]=mapped_column(UUID(as_uuid=True))
+    username: Mapped[str|None]=mapped_column(String(255)); hostname: Mapped[str|None]=mapped_column(String(255)); source_ip: Mapped[str|None]=mapped_column(INET)
+    domain: Mapped[str]=mapped_column(String(253)); url: Mapped[str|None]=mapped_column(Text); destination_ip: Mapped[str|None]=mapped_column(INET)
+    protocol: Mapped[str]=mapped_column(String(20)); port: Mapped[int]=mapped_column(Integer); method: Mapped[str|None]=mapped_column(String(20)); status_code: Mapped[int|None]=mapped_column(SmallInteger)
+    action: Mapped[str]=mapped_column(String(10)); policy_id: Mapped[uuid.UUID|None]=mapped_column(UUID(as_uuid=True)); matched_rule_id: Mapped[uuid.UUID|None]=mapped_column(UUID(as_uuid=True)); category: Mapped[str|None]=mapped_column(String(100))
+    bytes_up: Mapped[int]=mapped_column(BigInteger,default=0); bytes_down: Mapped[int]=mapped_column(BigInteger,default=0); duration_ms: Mapped[int|None]=mapped_column(BigInteger); idempotency_key: Mapped[str]=mapped_column(String(100))

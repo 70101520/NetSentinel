@@ -14,16 +14,24 @@ from app.models import Device, Policy, PolicyRule, User
 from app.policy import evaluate
 from app.schemas import Decision, DecisionRequest, DevicePage, Token
 from app.security import issue_token, require, verify_password
+from app.telemetry import router as telemetry_router
+from app.metrics import router as metrics_router
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
 async def lifespan(app:FastAPI):
     yield
     await redis.aclose(); await engine.dispose()
-app=FastAPI(title="NetSentinel Management API",version="0.1.0",lifespan=lifespan,docs_url="/docs")
+app=FastAPI(title="NetSentinel Management API",version="0.2.0",lifespan=lifespan,docs_url="/docs")
+app.state.redis=redis
+app.include_router(telemetry_router); app.include_router(metrics_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
 @app.middleware("http")
 async def request_context(request:Request,call_next):
+    length=request.headers.get("content-length")
+    if request.url.path=="/api/v1/telemetry/events" and length and length.isdigit() and int(length)>settings.telemetry_max_body_bytes:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail":"Request body too large"},status_code=413)
     request.state.request_id=request.headers.get("X-Request-ID",str(uuid.uuid4()))[:64]
     response=await call_next(request); response.headers["X-Request-ID"]=request.state.request_id; response.headers["X-Content-Type-Options"]="nosniff"; response.headers["X-Frame-Options"]="DENY"; return response
 @app.get("/health/live")
