@@ -7,7 +7,7 @@ from redis.asyncio import Redis
 from sqlalchemy import delete, func, select, update
 
 from app.config import settings
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.main import app
 from app.models import AgentEnrollment, AuditEvent, Device, DeviceStateTransition, Permission, Role, RolePermission, User, UserRole
 from app.offline import mark_stale_devices_offline
@@ -17,6 +17,7 @@ from app.service_auth import derive_secret
 
 @pytest.fixture
 async def client():
+    await engine.dispose()
     async with SessionLocal() as db:
         await db.execute(delete(DeviceStateTransition)); await db.execute(delete(AuditEvent)); await db.execute(delete(Device)); await db.execute(delete(AgentEnrollment))
         user = await db.scalar(select(User).where(User.email == "agent-tests@example.invalid"))
@@ -41,6 +42,7 @@ async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {bearer}"}) as value:
         yield value
     await redis.aclose()
+    await engine.dispose()
 
 
 def enrollment_body(token, installation="install-001", hostname="PC-001"):
