@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
-from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+from sqlalchemy.dialects.postgresql import INET, JSONB, MACADDR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 
@@ -50,7 +50,7 @@ class Device(Base):
     agent_identity: Mapped[uuid.UUID|None]=mapped_column(UUID(as_uuid=True),unique=True)
     credential_hash: Mapped[str|None]=mapped_column(String(64))
     credential_version: Mapped[int]=mapped_column(Integer,default=1)
-    architecture: Mapped[str|None]=mapped_column(String(30)); mac_address: Mapped[str|None]=mapped_column(String(17))
+    architecture: Mapped[str|None]=mapped_column(String(30)); mac_address: Mapped[str|None]=mapped_column(MACADDR)
     boot_time: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); uptime_seconds: Mapped[int|None]=mapped_column(BigInteger)
     last_heartbeat_ip: Mapped[str|None]=mapped_column(INET); current_status: Mapped[str]=mapped_column(String(10),default="OFFLINE")
     enrollment_state: Mapped[str]=mapped_column(String(20),default="ENROLLED"); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
