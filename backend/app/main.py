@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -7,10 +8,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from redis.asyncio import Redis
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError, TimeoutError as SQLAlchemyTimeoutError
 from app.audit import record
 from app.config import settings
 from app.db import engine, get_db
-from app.models import Device, Policy, PolicyRule, User
+from app.models import Device, DeviceStateTransition, Policy, PolicyRule, User
+from app.offline import offline_evaluator
 from app.policy import evaluate
 from app.schemas import Decision, DecisionRequest, DevicePage, Token
 from app.security import issue_token, require, verify_password
@@ -21,12 +24,22 @@ from app.agents import router as agents_router
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
 async def lifespan(app:FastAPI):
+    stop=asyncio.Event(); evaluator=asyncio.create_task(offline_evaluator(stop))
     yield
-    await redis.aclose(); await engine.dispose()
+    stop.set(); await evaluator; await redis.aclose(); await engine.dispose()
 app=FastAPI(title="NetSentinel Management API",version="0.2.0",lifespan=lifespan,docs_url="/docs")
 app.state.redis=redis
 app.include_router(telemetry_router); app.include_router(metrics_router); app.include_router(agents_router)
-app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
+app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
+@app.exception_handler(OperationalError)
+@app.exception_handler(InterfaceError)
+@app.exception_handler(SQLAlchemyTimeoutError)
+@app.exception_handler(DBAPIError)
+async def database_unavailable(request:Request,exc:Exception):
+    import structlog
+    structlog.get_logger("api").error("database_dependency_unavailable",path=request.url.path,error_type=type(exc).__name__)
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail":"Database service unavailable"},status_code=503)
 @app.middleware("http")
 async def request_context(request:Request,call_next):
     length=request.headers.get("content-length")
@@ -71,6 +84,13 @@ async def devices(page:int=Query(1,ge=1),page_size:int=Query(50,ge=1),status_fil
     rows=(await db.scalars(query.order_by(Device.hostname,Device.id).offset((page-1)*page_size).limit(page_size))).all()
     items=[{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":d.ip_address,"os_name":d.os_name,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"online" if d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline","uptime_seconds":d.uptime_seconds,"group_name":d.group_name,"department":d.department} for d in rows]
     return {"items":items,"meta":{"page":page,"page_size":page_size,"total":total,"pages":(total+page_size-1)//page_size}}
+@app.get("/api/v1/devices/{device_id}")
+async def device_details(device_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
+    device=await db.get(Device,device_id)
+    if not device: raise HTTPException(404,"Device not found")
+    transitions=(await db.scalars(select(DeviceStateTransition).where(DeviceStateTransition.device_id==device.id).order_by(DeviceStateTransition.occurred_at.desc()).limit(20))).all()
+    metadata=device.metadata_ or {}
+    return {"id":device.id,"agent_identity":device.agent_identity,"device_identifier":device.device_identifier,"hostname":device.hostname,"username":device.username,"ip_address":device.ip_address,"active_ips":metadata.get("active_ips",[]),"mac_addresses":metadata.get("mac_addresses",[str(device.mac_address)] if device.mac_address else []),"gateway":metadata.get("gateway"),"dns":metadata.get("dns",[]),"os_name":device.os_name,"os_version":device.os_version,"architecture":device.architecture,"agent_version":device.agent_version,"enrollment_state":device.enrollment_state,"status":device.current_status.lower(),"first_seen":device.first_seen,"last_seen":device.last_seen,"last_heartbeat":device.last_heartbeat,"boot_time":device.boot_time,"uptime_seconds":device.uptime_seconds,"group_name":device.group_name,"department":device.department,"recent_transitions":[{"occurred_at":t.occurred_at,"previous_status":t.previous_status,"new_status":t.new_status} for t in transitions]}
 @app.post("/api/v1/policies/evaluate",response_model=Decision)
 async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Depends(require("policies.view"))):
     policy=await db.get(Policy,body.policy_id)
