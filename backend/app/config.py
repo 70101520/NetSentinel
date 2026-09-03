@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     jwt_issuer: str = "netsentinel"
     access_token_minutes: int = Field(default=15, ge=5, le=60)
     agent_heartbeat_timeout_seconds: int = Field(default=180, ge=30)
+    agent_heartbeat_interval_seconds: int = Field(default=60, ge=15, le=3600)
+    agent_max_body_bytes: int = Field(default=65_536, ge=4096, le=1_048_576)
     cors_origins: str = ""
     log_level: str = "INFO"
     db_pool_size: int = Field(default=10, ge=2, le=100)
