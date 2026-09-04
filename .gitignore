@@ -24,3 +24,6 @@ redis-data/
 loadtest/*.state.json
 loadtest/*-results.json
 loadtest/*-samples.csv
+agent/windows/**/bin/
+agent/windows/**/obj/
+agent/windows/publish/

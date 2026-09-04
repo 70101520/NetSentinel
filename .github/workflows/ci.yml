@@ -32,3 +32,14 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+  windows-agent:
+    runs-on: windows-latest
+    defaults: {run: {working-directory: agent/windows}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - run: dotnet restore NetSentinel.Agent.sln
+      - run: dotnet build NetSentinel.Agent.sln -c Release --no-restore
+      - run: dotnet test NetSentinel.Agent.sln -c Release --no-build
+      - run: dotnet publish NetSentinel.Agent/NetSentinel.Agent.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore
