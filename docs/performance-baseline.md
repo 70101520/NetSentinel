@@ -8,4 +8,4 @@ Record throughput, errors, p50/p95/p99 latency, policy-evaluation latency, CPU, 
 
 Acceptance gates: heartbeat p95 below 250 ms with errors below 0.1%; future cached policy evaluation p99 below 10 ms without PostgreSQL; no event loss across worker restart; bounded recovery and connections; responsive portal queries during ingestion.
 
-The Phase 1 code does not yet expose heartbeat or telemetry ingestion endpoints, a durable consumer group, or metrics. Throughput testing is therefore blocked; this establishes measurements, not results.
+Durable telemetry and authenticated heartbeat ingestion now exist. Endpoint stabilization measures a separate 500-device burst/headroom cycle and a 30-minute realistic run with randomized 55–65 second intervals. During the realistic run, sample VM, API, PostgreSQL, and Redis CPU/RAM plus database connections about every five seconds. Compare the first and last five-minute latency windows and retain `EXPLAIN ANALYZE` output for the indexed stale-device selection. Recorded results belong in `docs/endpoint-heartbeat-gate.md`; telemetry results remain independent.
