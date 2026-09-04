@@ -21,3 +21,6 @@ redis-data/
 .ruff_cache/
 .idea/
 .vscode/
+loadtest/*.state.json
+loadtest/*-results.json
+loadtest/*-samples.csv

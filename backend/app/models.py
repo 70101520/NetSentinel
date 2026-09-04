@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
-from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+from sqlalchemy.dialects.postgresql import INET, JSONB, MACADDR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 
@@ -47,7 +47,20 @@ class Device(Base):
     last_seen: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     last_heartbeat: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     credential_revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    agent_identity: Mapped[uuid.UUID|None]=mapped_column(UUID(as_uuid=True),unique=True)
+    credential_hash: Mapped[str|None]=mapped_column(String(64))
+    credential_version: Mapped[int]=mapped_column(Integer,default=1)
+    architecture: Mapped[str|None]=mapped_column(String(30)); mac_address: Mapped[str|None]=mapped_column(MACADDR)
+    boot_time: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); uptime_seconds: Mapped[int|None]=mapped_column(BigInteger)
+    last_heartbeat_ip: Mapped[str|None]=mapped_column(INET); current_status: Mapped[str]=mapped_column(String(10),default="OFFLINE")
+    enrollment_state: Mapped[str]=mapped_column(String(20),default="ENROLLED"); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
     metadata_: Mapped[dict]=mapped_column("metadata", JSONB, default=dict)
+class AgentEnrollment(Base):
+    __tablename__="agent_enrollments"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); token_hash: Mapped[str]=mapped_column(String(64),unique=True); expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True)); used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id")); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); max_uses: Mapped[int]=mapped_column(Integer,default=1); use_count: Mapped[int]=mapped_column(Integer,default=0); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
+class DeviceStateTransition(Base):
+    __tablename__="device_state_transitions"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE")); occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); previous_status: Mapped[str]=mapped_column(String(10)); new_status: Mapped[str]=mapped_column(String(10))
 class Policy(Base):
     __tablename__="policies"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
