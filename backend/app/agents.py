@@ -21,9 +21,13 @@ async def enforce_enrollment_limit(request: Request, token_digest: str) -> None:
     source = request.client.host if request.client else "unknown"
     key = f"netsentinel:agent-enroll-rate:{source}:{token_digest[:16]}"
     redis = request.app.state.redis
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, settings.agent_enrollment_rate_window_seconds)
+    count = await redis.eval(
+        "local n=redis.call('INCR',KEYS[1]); if n==1 then "
+        "redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n",
+        1,
+        key,
+        settings.agent_enrollment_rate_window_seconds,
+    )
     if count > settings.agent_enrollment_rate_limit:
         raise HTTPException(429, "Enrollment rate limit exceeded")
 
