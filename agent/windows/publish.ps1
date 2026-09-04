@@ -1,0 +1,2 @@
+$ErrorActionPreference = 'Stop'
+dotnet publish "$PSScriptRoot\NetSentinel.Agent\NetSentinel.Agent.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$PSScriptRoot\publish"
