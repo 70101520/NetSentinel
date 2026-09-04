@@ -1,20 +1,28 @@
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetSentinel.Agent", "NetSentinel.Agent\NetSentinel.Agent.csproj", "{6FB28567-BAD2-49EE-8652-8B49AD31D2F7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetSentinel.Agent", "NetSentinel.Agent\NetSentinel.Agent.csproj", "{7F4098F8-7708-4D8F-A992-263A02B83717}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetSentinel.Agent.Tests", "NetSentinel.Agent.Tests\NetSentinel.Agent.Tests.csproj", "{5B488A29-1C8D-45B3-AB59-BBDE7134046D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetSentinel.Agent.Tests", "NetSentinel.Agent.Tests\NetSentinel.Agent.Tests.csproj", "{5CE9D9C7-9FC7-4AE6-AEE8-D632FB066D46}"
 EndProject
 Global
- GlobalSection(SolutionConfigurationPlatforms) = preSolution
-  Debug|Any CPU = Debug|Any CPU
-  Release|Any CPU = Release|Any CPU
- EndGlobalSection
- GlobalSection(ProjectConfigurationPlatforms) = postSolution
-  {6FB28567-BAD2-49EE-8652-8B49AD31D2F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-  {6FB28567-BAD2-49EE-8652-8B49AD31D2F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-  {5B488A29-1C8D-45B3-AB59-BBDE7134046D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-  {5B488A29-1C8D-45B3-AB59-BBDE7134046D}.Release|Any CPU.ActiveCfg = Release|Any CPU
- EndGlobalSection
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7F4098F8-7708-4D8F-A992-263A02B83717}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F4098F8-7708-4D8F-A992-263A02B83717}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F4098F8-7708-4D8F-A992-263A02B83717}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F4098F8-7708-4D8F-A992-263A02B83717}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5CE9D9C7-9FC7-4AE6-AEE8-D632FB066D46}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5CE9D9C7-9FC7-4AE6-AEE8-D632FB066D46}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5CE9D9C7-9FC7-4AE6-AEE8-D632FB066D46}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5CE9D9C7-9FC7-4AE6-AEE8-D632FB066D46}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
 EndGlobal

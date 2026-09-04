@@ -27,3 +27,4 @@ loadtest/*-samples.csv
 agent/windows/**/bin/
 agent/windows/**/obj/
 agent/windows/publish/
+agent/windows/publish-local/

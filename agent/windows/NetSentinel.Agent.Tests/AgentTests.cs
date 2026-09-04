@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using NetSentinel.Agent;
+using Xunit;
 
 namespace NetSentinel.Agent.Tests;
 
@@ -44,7 +45,7 @@ public sealed class AgentTests : IDisposable
         const string secret = "credential-value-that-must-not-be-plaintext";
         await store.SaveCredentialAsync(secret, default);
         Assert.Equal(secret, await store.LoadCredentialAsync(default));
-        Assert.DoesNotContain(secret, Convert.ToBase64String(await File.ReadAllBytesAsync(paths.CredentialPath)));
+        Assert.DoesNotContain(secret, Encoding.UTF8.GetString(await File.ReadAllBytesAsync(paths.CredentialPath)));
     }
 
     [Fact]
