@@ -33,7 +33,7 @@ async def test_dashboard_devices_authentication_and_expiry():
         headers={"Authorization":f"Bearer {token}"}
         devices=await client.get("/api/v1/devices",headers=headers);dashboard=await client.get("/api/v1/dashboard",headers=headers)
         assert devices.status_code==200 and devices.json()["items"][0]["hostname"]=="REAL-ENDPOINT"
-        assert dashboard.status_code==200 and dashboard.json()["devices"]=={"total":1,"online":1,"offline":0}
+        assert dashboard.status_code==200 and dashboard.json()["devices"]=={"total":1,"online":1,"offline":0,"historical":0}
         now=datetime.now(timezone.utc)
         expired=jwt.encode({"sub":str(user.id),"iss":settings.jwt_issuer,"aud":"netsentinel-api","iat":now-timedelta(hours=1),"exp":now-timedelta(minutes=1),"jti":str(uuid.uuid4())},settings.jwt_secret,algorithm="HS256")
         assert (await client.get("/api/v1/devices",headers={"Authorization":f"Bearer {expired}"})).status_code==401

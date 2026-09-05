@@ -30,3 +30,9 @@ python3 loadtest/agent_simulator.py --url http://localhost:8080 \
 ```
 
 The state file and generated result/sample files are ignored by Git. Remove them securely when validation is complete.
+
+## Synthetic device cleanup
+
+Backend tests refuse to start unless `DATABASE_URL` names the isolated `test` or `netsentinel_test` database. Never run pytest inside the deployed API container, because its inherited URL targets the shared deployment database.
+
+Confirmed lifecycle fixtures and one-off merge-smoke records can be reviewed with `python -m app.cli purge-synthetic-devices UUID...`. The command is a dry run unless `--confirm` is supplied. It accepts explicit UUIDs only and refuses records that do not match the known hostname, installation ID, agent version, and documentation-reserved IP signatures. Confirmed deletion cascades device transition and heartbeat rows through database foreign keys while retaining a credential-free audit event. Telemetry and legitimate revoked endpoint history are not deleted.
