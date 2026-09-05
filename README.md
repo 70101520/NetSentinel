@@ -17,6 +17,7 @@ The bootstrap command prompts for a password and refuses to run when an administ
 
 - `backend/` — management API, domain services, migrations, tests
 - `frontend/` — React admin portal
+- `agent/windows/` — .NET 8 Windows Service foundation, installer, tests, and diagnostics
 - `deploy/` — reverse proxy configuration
 - `docs/` — architecture, security, data, deployment, agent, and delivery plans
 

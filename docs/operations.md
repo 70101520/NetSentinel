@@ -14,6 +14,8 @@ Enrollment throttling is isolated from heartbeat traffic and keyed by source IP 
 
 Administrative APIs under `/api/v1/agents` create/list/revoke enrollment tokens, revoke endpoints, rotate credentials, and update group/department assignment. The raw enrollment token is returned only by creation. The raw rotated credential is returned only by rotation. Never put either value in command history, tickets, or logs.
 
+For controlled console-only administrator password recovery, run `docker compose exec api python -m app.cli reset-admin-password EMAIL`. The email is the only command-line value; the CLI verifies the account exists, prompts twice with hidden input, enforces the password length policy, clears login lockout state, preserves identity and authorization relationships, and writes an audit event without password material. Never pipe a password to this command or place one in shell history.
+
 During PostgreSQL loss, an agent heartbeat returns HTTP 503 with `Database service unavailable`; it never acknowledges the heartbeat. After database readiness returns, the same credential can retry safely. API process restart requires no re-enrollment because identity and credential derivatives are durable in PostgreSQL.
 
 Recovery test tooling example:
