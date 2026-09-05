@@ -90,3 +90,7 @@ Closure validation completed on 2026-09-05 without merging the feature branch.
 - A password-hidden scan compared all three current test credentials against tracked files and full Git patch history: zero matches. No tracked `.env`, DPAPI credential XML, private key, test certificate, or temporary helper was present. Local agent build had zero errors/warnings and all 10 tests passed.
 
 Final closure criteria are satisfied, subject to the final repository CI run recorded with the closure commit.
+
+## Develop integration
+
+The validated feature head `812220e` was merged into `develop` as `83d6090` (`merge: integrate windows agent service foundation`) and pushed without modifying `main`. GitHub Actions run `33961969885` passed the backend, frontend, and Windows-agent jobs. Post-merge regression confirmed healthy API, PostgreSQL, Redis, portal authentication, telemetry tests, and Devices API behavior. The installed service remained Running/Automatic under LocalService with the same installation and device identities, successful heartbeat, a reachable server, zero healthy-state failures, and exactly one current online record. Firewall, DPAPI, explicit HTTP opt-in, and certificate-validation behavior remained unchanged; no HTTP fallback or new tracked secret/test artifact was introduced.
