@@ -61,6 +61,25 @@ class AgentEnrollment(Base):
 class DeviceStateTransition(Base):
     __tablename__="device_state_transitions"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE")); occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); previous_status: Mapped[str]=mapped_column(String(10)); new_status: Mapped[str]=mapped_column(String(10))
+class DeviceProxyConfiguration(Base):
+    __tablename__="device_proxy_configurations"
+    device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE"),primary_key=True)
+    enabled: Mapped[bool]=mapped_column(Boolean,default=False)
+    host: Mapped[str|None]=mapped_column(String(253))
+    port: Mapped[int|None]=mapped_column(Integer)
+    bypass: Mapped[list]=mapped_column(JSONB,default=list)
+    mode: Mapped[str]=mapped_column(String(20),default="disabled")
+    version: Mapped[int]=mapped_column(BigInteger,default=1)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
+    applied_version: Mapped[int|None]=mapped_column(BigInteger)
+    current_state: Mapped[str]=mapped_column(String(30),default="unknown")
+    drift_detected: Mapped[bool]=mapped_column(Boolean,default=False)
+    last_apply_result: Mapped[str|None]=mapped_column(String(50))
+    last_error: Mapped[str|None]=mapped_column(String(500))
+    effective_host: Mapped[str|None]=mapped_column(String(253))
+    effective_port: Mapped[int|None]=mapped_column(Integer)
+    bypass_summary: Mapped[str|None]=mapped_column(String(500))
+    last_reported_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
 class Policy(Base):
     __tablename__="policies"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
