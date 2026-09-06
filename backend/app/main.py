@@ -82,7 +82,7 @@ async def devices(page:int=Query(1,ge=1),page_size:int=Query(50,ge=1),status_fil
     if status_filter=="offline": filters.append((Device.last_heartbeat<datetime.fromtimestamp(cutoff,tz=timezone.utc)) | Device.last_heartbeat.is_(None))
     query=query.where(*filters); total=await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows=(await db.scalars(query.order_by(Device.hostname,Device.id).offset((page-1)*page_size).limit(page_size))).all()
-    items=[{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":str(d.ip_address) if d.ip_address else None,"os_name":d.os_name,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"online" if d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline","uptime_seconds":d.uptime_seconds,"group_name":d.group_name,"department":d.department} for d in rows]
+    items=[{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":str(d.ip_address) if d.ip_address else None,"os_name":d.os_name,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"revoked" if d.enrollment_state=="REVOKED" else "online" if d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline","uptime_seconds":d.uptime_seconds,"group_name":d.group_name,"department":d.department} for d in rows]
     return {"items":items,"meta":{"page":page,"page_size":page_size,"total":total,"pages":(total+page_size-1)//page_size}}
 @app.get("/api/v1/devices/{device_id}")
 async def device_details(device_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
@@ -100,5 +100,5 @@ async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Dep
     return Decision(action=action,policy_id=policy.id,policy_version=policy.active_version,matched_rule_id=rule_id,reason=reason)
 @app.get("/api/v1/dashboard")
 async def dashboard(db:AsyncSession=Depends(get_db),_:User=Depends(require("dashboard.view"))):
-    total=await db.scalar(select(func.count()).select_from(Device)); cutoff=datetime.fromtimestamp(datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds,tz=timezone.utc); online=await db.scalar(select(func.count()).select_from(Device).where(Device.last_heartbeat>=cutoff))
-    return {"devices":{"total":total,"online":online,"offline":total-online},"components":{"api":"ok"}}
+    total=await db.scalar(select(func.count()).select_from(Device)); cutoff=datetime.fromtimestamp(datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds,tz=timezone.utc); historical=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="REVOKED")); online=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="ENROLLED",Device.last_heartbeat>=cutoff))
+    return {"devices":{"total":total,"online":online,"offline":total-online-historical,"historical":historical},"components":{"api":"ok"}}
