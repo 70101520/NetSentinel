@@ -17,6 +17,15 @@ $acl.SetAccessRuleProtection($true,$false)
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($_,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
 }
 Set-Acl -Path $data -AclObject $acl
+$winHttpPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections'
+$winHttpKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($winHttpPath,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,[Security.AccessControl.RegistryRights]::ChangePermissions)
+if (-not $winHttpKey) { throw 'WinHTTP connection-settings registry key is unavailable' }
+$winHttpAcl = $winHttpKey.GetAccessControl()
+$winHttpRights = [Security.AccessControl.RegistryRights]::QueryValues -bor [Security.AccessControl.RegistryRights]::SetValue
+$winHttpRule = [Security.AccessControl.RegistryAccessRule]::new('NT AUTHORITY\LOCAL SERVICE',$winHttpRights,'None','None','Allow')
+$winHttpAcl.AddAccessRule($winHttpRule) | Out-Null
+$winHttpKey.SetAccessControl($winHttpAcl)
+$winHttpKey.Dispose()
 $exe = Join-Path $install 'NetSentinel.Agent.exe'
 $configure = @('configure','--server',$ServerUrl,'--enrollment-token-stdin')
 if ($AllowHttp) { $configure += '--allow-http' }

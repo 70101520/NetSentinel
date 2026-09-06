@@ -110,6 +110,15 @@ public sealed class AgentTests : IDisposable
         Assert.Equal(baseline, System.Text.Json.JsonSerializer.Deserialize<ProxySnapshot>(await File.ReadAllTextAsync(paths.ProxyBaselinePath),new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
     }
 
+    [Fact]
+    public async Task Initially_disabled_matching_baseline_does_not_require_a_privileged_write()
+    {
+        var paths=new AgentPaths(root);var store=new FakeProxyStore(new(false,null,null));
+        var manager=new ProxyConfigurationManager(store,paths,NullLogger<ProxyConfigurationManager>.Instance);
+        var result=await manager.ReconcileAsync(new(false,null,null,[],"disabled",1),null,default);
+        Assert.Equal(0,store.Writes);Assert.Equal(1,result.AppliedVersion);Assert.Equal("no-change",result.LastApplyResult);
+    }
+
     [Theory]
     [InlineData("",3128,"configured")]
     [InlineData("bad host;command",3128,"configured")]

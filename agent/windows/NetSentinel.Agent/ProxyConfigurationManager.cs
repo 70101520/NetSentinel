@@ -40,8 +40,15 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WinHTTP proxy configuration requires Windows");
         var info = new Info { AccessType = value.Enabled ? NamedProxy : NoProxy, Proxy = value.Enabled ? Marshal.StringToHGlobalUni(value.Proxy) : IntPtr.Zero, Bypass = value.Enabled && !string.IsNullOrEmpty(value.Bypass) ? Marshal.StringToHGlobalUni(value.Bypass) : IntPtr.Zero };
-        try { if (!WinHttpSetDefaultProxyConfiguration(ref info)) throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to write WinHTTP proxy configuration"); }
+        var succeeded=false;var error=0;
+        try { succeeded=WinHttpSetDefaultProxyConfiguration(ref info);if(!succeeded)error=Marshal.GetLastWin32Error(); }
         finally { if (info.Proxy != IntPtr.Zero) Marshal.FreeHGlobal(info.Proxy); if (info.Bypass != IntPtr.Zero) Marshal.FreeHGlobal(info.Bypass); }
+        if (!succeeded)
+        {
+            var actual=Read();
+            var matches=actual.Enabled==value.Enabled&&string.Equals(actual.Proxy??"",value.Proxy??"",StringComparison.OrdinalIgnoreCase)&&string.Equals(actual.Bypass??"",value.Bypass??"",StringComparison.OrdinalIgnoreCase);
+            if (!matches)throw new Win32Exception(error,"Unable to write WinHTTP proxy configuration");
+        }
     }
 }
 
@@ -71,7 +78,8 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
             var actual = store.Read();
             var drift = !Equivalent(actual, expected);
             var versionChanged = previous?.AppliedVersion != desired.Version;
-            if (drift || versionChanged)
+            var requiresWrite = drift || (versionChanged && desired.Enabled);
+            if (requiresWrite)
             {
                 store.Write(expected);
                 actual = store.Read();
@@ -79,7 +87,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
                 logger.LogInformation(desired.Enabled ? "Proxy configuration version {Version} applied" : "Proxy baseline restored for configuration version {Version}", desired.Version);
             }
             else logger.LogDebug("Proxy configuration version {Version} unchanged", desired.Version);
-            return new(desired.Version, desired.Version, desired.Enabled ? "configured" : "disabled", drift, drift || versionChanged ? "applied" : "no-change", null, desired.Enabled ? desired.Host : null, desired.Enabled ? desired.Port : null, $"{desired.Bypass.Length} entries", sync);
+            return new(desired.Version, desired.Version, desired.Enabled ? "configured" : "disabled", drift, requiresWrite ? "applied" : "no-change", null, desired.Enabled ? desired.Host : null, desired.Enabled ? desired.Port : null, $"{desired.Bypass.Length} entries", sync);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or Win32Exception or PlatformNotSupportedException)
         {

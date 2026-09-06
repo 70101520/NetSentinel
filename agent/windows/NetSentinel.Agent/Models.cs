@@ -72,4 +72,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("uptime_seconds")] long UptimeSeconds,
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null);
 
-public static class AgentVersion { public const string Current = "0.1.0"; }
+public static class AgentVersion { public const string Current = "0.2.0"; }

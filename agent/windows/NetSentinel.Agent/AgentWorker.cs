@@ -21,6 +21,12 @@ public sealed class AgentWorker(
         LocalState state;
         try { state = await states.LoadAsync(stoppingToken); }
         catch (InvalidDataException ex) { logger.LogCritical("Local state is invalid: {Reason}", ex.Message); return; }
+        if (state.AgentVersion != AgentVersion.Current)
+        {
+            state = state with { AgentVersion = AgentVersion.Current };
+            await states.SaveAsync(state, stoppingToken);
+            logger.LogInformation("Local agent state upgraded to version {Version}", AgentVersion.Current);
+        }
 
         var credential = await secrets.LoadCredentialAsync(stoppingToken);
         if (state.DeviceId is null || credential is null)
