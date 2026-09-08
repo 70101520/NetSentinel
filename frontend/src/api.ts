@@ -1,7 +1,7 @@
 const TOKEN_KEY='netsentinel_access_token';
 
 export class AuthenticationRequired extends Error{}
-export class ApiFailure extends Error{constructor(public status:number){super('The server could not complete this request.');}}
+export class ApiFailure extends Error{constructor(public status:number,message='The server could not complete this request.'){super(message);}}
 
 export function storedToken(){return localStorage.getItem(TOKEN_KEY)}
 export function clearSession(){localStorage.removeItem(TOKEN_KEY)}
@@ -22,6 +22,6 @@ export async function api<T>(path:string,init:RequestInit={}){
   const token=storedToken();if(!token||!tokenIsCurrent(token)){clearSession();throw new AuthenticationRequired('Your session has expired. Please sign in again.')}
   const response=await fetch(path,{...init,headers:{...init.headers,Authorization:`Bearer ${token}`}});
   if(response.status===401){clearSession();throw new AuthenticationRequired('Your session has expired. Please sign in again.')}
-  if(!response.ok)throw new ApiFailure(response.status);
+  if(!response.ok){let message='The server could not complete this request.';try{const problem=await response.json();if(typeof problem.detail==='string')message=problem.detail}catch{}throw new ApiFailure(response.status,message)}
   return response.json() as Promise<T>;
 }
