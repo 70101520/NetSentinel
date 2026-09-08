@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     telemetry_reclaim_idle_ms: int = Field(default=30000, ge=1000)
     telemetry_max_attempts: int = Field(default=5, ge=1, le=100)
     telemetry_db_retry_base_seconds: float = Field(default=1, ge=.1, le=60)
+    discovery_max_hosts_per_network: int = Field(default=256, ge=1, le=4096)
+    discovery_concurrency: int = Field(default=64, ge=1, le=256)
+    discovery_probe_timeout_seconds: float = Field(default=.5, ge=.1, le=5)
     @field_validator("jwt_secret")
     @classmethod
     def reject_placeholder(cls, value: str):

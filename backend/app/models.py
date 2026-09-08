@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import INET, JSONB, MACADDR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
@@ -80,6 +80,32 @@ class DeviceProxyConfiguration(Base):
     effective_port: Mapped[int|None]=mapped_column(Integer)
     bypass_summary: Mapped[str|None]=mapped_column(String(500))
     last_reported_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+class DiscoveryNetwork(Base):
+    __tablename__="discovery_networks"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(100),unique=True)
+    cidr: Mapped[str]=mapped_column(String(43),unique=True)
+    vlan: Mapped[str|None]=mapped_column(String(100))
+    enabled: Mapped[bool]=mapped_column(Boolean,default=True)
+    interval_seconds: Mapped[int]=mapped_column(Integer,default=900)
+    probe_ports: Mapped[list]=mapped_column(JSONB,default=list)
+    last_started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str]=mapped_column(String(20),default="NEVER")
+    last_error: Mapped[str|None]=mapped_column(String(300))
+    last_host_count: Mapped[int]=mapped_column(Integer,default=0)
+class DiscoveryHost(Base):
+    __tablename__="discovery_hosts"
+    __table_args__=(UniqueConstraint("network_id","ip_address",name="uq_discovery_host_network_ip"),)
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    network_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("discovery_networks.id",ondelete="CASCADE"))
+    ip_address: Mapped[str]=mapped_column(INET)
+    hostname: Mapped[str|None]=mapped_column(String(255))
+    state: Mapped[str]=mapped_column(String(10),default="ONLINE")
+    first_seen: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    last_seen: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    open_ports: Mapped[list]=mapped_column(JSONB,default=list)
+    matched_device_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("devices.id",ondelete="SET NULL"))
 class Policy(Base):
     __tablename__="policies"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

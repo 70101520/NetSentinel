@@ -10,6 +10,14 @@ class DeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; os_name:str|None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None
 class DevicePage(BaseModel): items:list[DeviceOut]; meta:PageMeta
+class DiscoveryNetworkInput(BaseModel):
+    name:str=Field(min_length=1,max_length=100);cidr:str;vlan:str|None=Field(None,max_length=100);enabled:bool=True;interval_seconds:int=Field(default=900,ge=60,le=86400);probe_ports:list[int]=Field(default=[80,443,445,3389],min_length=1,max_length=16)
+    @field_validator("probe_ports")
+    @classmethod
+    def ports_valid(cls,values): return sorted(set(values)) if all(1<=v<=65535 for v in values) else (_ for _ in ()).throw(ValueError("ports must be between 1 and 65535"))
+class DiscoveryNetworkOut(DiscoveryNetworkInput):
+    model_config=ConfigDict(from_attributes=True)
+    id:uuid.UUID;last_started_at:datetime|None;last_completed_at:datetime|None;last_status:str;last_error:str|None;last_host_count:int
 class PolicyRuleInput(BaseModel):
     priority:int=Field(ge=1,le=100000); action:str; domain_pattern:str=Field(max_length=253); expires_at:datetime|None=None
     @field_validator("action")

@@ -20,6 +20,7 @@ from app.security import issue_token, require, verify_password
 from app.telemetry import router as telemetry_router
 from app.metrics import router as metrics_router
 from app.agents import router as agents_router
+from app.discovery import router as discovery_router
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
@@ -30,6 +31,7 @@ async def lifespan(app:FastAPI):
 app=FastAPI(title="NetSentinel Management API",version="0.2.0",lifespan=lifespan,docs_url="/docs")
 app.state.redis=redis
 app.include_router(telemetry_router); app.include_router(metrics_router); app.include_router(agents_router)
+app.include_router(discovery_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
 @app.exception_handler(OperationalError)
 @app.exception_handler(InterfaceError)
