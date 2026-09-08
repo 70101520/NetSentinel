@@ -9,6 +9,7 @@ public sealed class AgentWorker(
     StateStore states,
     ISecretStore secrets,
     ISystemSnapshot system,
+    ProxyConfigurationManager proxyManager,
     IOptions<AgentOptions> options,
     ILogger<AgentWorker> logger) : BackgroundService
 {
@@ -20,6 +21,12 @@ public sealed class AgentWorker(
         LocalState state;
         try { state = await states.LoadAsync(stoppingToken); }
         catch (InvalidDataException ex) { logger.LogCritical("Local state is invalid: {Reason}", ex.Message); return; }
+        if (state.AgentVersion != AgentVersion.Current)
+        {
+            state = state with { AgentVersion = AgentVersion.Current };
+            await states.SaveAsync(state, stoppingToken);
+            logger.LogInformation("Local agent state upgraded to version {Version}", AgentVersion.Current);
+        }
 
         var credential = await secrets.LoadCredentialAsync(stoppingToken);
         if (state.DeviceId is null || credential is null)
@@ -46,7 +53,24 @@ public sealed class AgentWorker(
         var failure = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
-            var result = await client.HeartbeatAsync(system.Capture(state.DeviceId!.Value), credential!, stoppingToken);
+            try
+            {
+                var desired = await client.GetConfigurationAsync(credential!, stoppingToken);
+                if (desired is not null)
+                {
+                    logger.LogDebug("Proxy configuration version {Version} received", desired.Version);
+                    state = state with { Proxy = await proxyManager.ReconcileAsync(desired, state.Proxy, stoppingToken) };
+                    await states.SaveAsync(state, stoppingToken);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                state = state with { Enrollment = "CredentialInvalid", Server = "Reachable", LastHeartbeat = DateTimeOffset.UtcNow, ConsecutiveFailures = failure + 1 };
+                await states.SaveAsync(state, stoppingToken);
+                logger.LogError("Agent credential was rejected during configuration sync; administrative recovery is required");
+                return;
+            }
+            var result = await client.HeartbeatAsync(system.Capture(state.DeviceId!.Value) with { ProxyStatus = state.Proxy }, credential!, stoppingToken);
             var now = DateTimeOffset.UtcNow;
             if (result == HeartbeatResult.CredentialRejected)
             {

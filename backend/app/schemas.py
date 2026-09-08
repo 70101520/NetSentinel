@@ -1,6 +1,9 @@
+from __future__ import annotations
+
+import re
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator
 class Token(BaseModel): access_token:str; token_type:str="bearer"; expires_in:int
 class PageMeta(BaseModel): page:int; page_size:int; total:int; pages:int
 class DeviceOut(BaseModel):
@@ -65,7 +68,42 @@ class TelemetryAccepted(BaseModel): accepted:int; rejected:int=0; status:str="qu
 class EnrollRequest(BaseModel):
     enrollment_token:str=Field(min_length=20,max_length=200); installation_id:str=Field(min_length=8,max_length=200); hostname:str=Field(min_length=1,max_length=255); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); architecture:str|None=Field(None,max_length=30); initial_ip:IPvAnyAddress|None=None; mac_address:str|None=Field(None,max_length=17); agent_version:str=Field(max_length=50)
 class Heartbeat(BaseModel):
-    device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0)
+    device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0); proxy_status:ProxyStatus|None=None
 class DeviceAssignment(BaseModel):
     group_name:str|None=Field(None,max_length=100)
     department:str|None=Field(None,max_length=100)
+
+class ProxyStatus(BaseModel):
+    desired_version:int=Field(ge=1); applied_version:int|None=Field(None,ge=1); current_state:str=Field(max_length=30); drift_detected:bool=False; last_apply_result:str|None=Field(None,max_length=50); last_error:str|None=Field(None,max_length=500); effective_host:str|None=Field(None,max_length=253); effective_port:int|None=Field(None,ge=1,le=65535); bypass_summary:str|None=Field(None,max_length=500)
+
+class ProxyConfigurationInput(BaseModel):
+    enabled:bool=False
+    host:str|None=Field(None,max_length=253)
+    port:int|None=Field(None,ge=1,le=65535)
+    bypass:list[str]=Field(default_factory=list,max_length=64)
+    mode:str="disabled"
+
+    @field_validator("host")
+    @classmethod
+    def valid_host(cls,value):
+        if value is None:return value
+        value=value.strip()
+        if not value or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?",value):raise ValueError("invalid proxy host")
+        return value.lower()
+
+    @field_validator("bypass")
+    @classmethod
+    def valid_bypass(cls,values):
+        cleaned=[]
+        for value in values:
+            value=value.strip()
+            if len(value)>253 or not re.fullmatch(r"(?:<local>|[A-Za-z0-9*._:\[\]-]+)",value,re.IGNORECASE):raise ValueError("invalid bypass entry")
+            if value not in cleaned:cleaned.append(value)
+        return cleaned
+
+    @model_validator(mode="after")
+    def valid_combination(self):
+        if self.mode not in {"disabled","configured"}:raise ValueError("unsupported proxy mode")
+        if self.enabled and (not self.host or not self.port or self.mode!="configured"):raise ValueError("enabled proxy requires host, port, and configured mode")
+        if not self.enabled and self.mode!="disabled":raise ValueError("disabled proxy requires disabled mode")
+        return self

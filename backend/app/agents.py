@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record
 from app.config import settings
 from app.db import get_db
-from app.models import AgentEnrollment, Device, DeviceStateTransition, User
-from app.schemas import DeviceAssignment, EnrollRequest, Heartbeat
+from app.models import AgentEnrollment, Device, DeviceProxyConfiguration, DeviceStateTransition, User
+from app.schemas import DeviceAssignment, EnrollRequest, Heartbeat, ProxyConfigurationInput
 from app.security import require
 from app.service_auth import derive_secret
 
@@ -88,16 +88,51 @@ async def enroll(request: Request, body: EnrollRequest, db: AsyncSession = Depen
     return {"device_id": device.id, "agent_identity": device.agent_identity, "credential": f"{device.id}.{raw}", "server": {"heartbeat_interval_seconds": settings.agent_heartbeat_interval_seconds}}
 
 
-async def authenticated_agent(body: Heartbeat, x_agent_credential: str = Header(...), db: AsyncSession = Depends(get_db)):
+async def authenticate_credential(x_agent_credential: str, db: AsyncSession, expected_device_id: uuid.UUID | None = None):
     try:
         device_id, raw = x_agent_credential.split(".", 1)
         device_id = uuid.UUID(device_id)
     except (ValueError, AttributeError):
         raise HTTPException(401, "Invalid agent credential")
     device = await db.scalar(select(Device).where(Device.id == device_id).with_for_update())
-    if not device or device.id != body.device_id or device.credential_revoked_at or device.enrollment_state != "ENROLLED" or not device.credential_hash or not secrets.compare_digest(derive_secret(raw), device.credential_hash):
+    if not device or (expected_device_id and device.id != expected_device_id) or device.credential_revoked_at or device.enrollment_state != "ENROLLED" or not device.credential_hash or not secrets.compare_digest(derive_secret(raw), device.credential_hash):
         raise HTTPException(401, "Invalid agent credential")
     return device
+
+async def authenticated_agent(body: Heartbeat, x_agent_credential: str = Header(...), db: AsyncSession = Depends(get_db)):
+    return await authenticate_credential(x_agent_credential, db, body.device_id)
+
+async def authenticated_agent_header(x_agent_credential: str = Header(...), db: AsyncSession = Depends(get_db)):
+    return await authenticate_credential(x_agent_credential, db)
+
+def proxy_payload(item: DeviceProxyConfiguration | None):
+    return {"proxy": {"enabled": item.enabled if item else False, "host": item.host if item else None, "port": item.port if item else None, "bypass": item.bypass if item else [], "mode": item.mode if item else "disabled", "version": item.version if item else 1}}
+
+@router.get("/config")
+async def agent_config(db: AsyncSession = Depends(get_db), device: Device = Depends(authenticated_agent_header)):
+    return proxy_payload(await db.get(DeviceProxyConfiguration, device.id))
+
+@router.get("/devices/{device_id}/proxy-config")
+async def get_proxy_config(device_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require("agents.manage"))):
+    if not await db.get(Device, device_id): raise HTTPException(404, "Device not found")
+    item=await db.get(DeviceProxyConfiguration,device_id)
+    return {**proxy_payload(item),"reported":None if not item else {"applied_version":item.applied_version,"current_state":item.current_state,"drift_detected":item.drift_detected,"last_apply_result":item.last_apply_result,"last_error":item.last_error,"effective_host":item.effective_host,"effective_port":item.effective_port,"bypass_summary":item.bypass_summary,"last_reported_at":item.last_reported_at}}
+
+@router.put("/devices/{device_id}/proxy-config")
+async def update_proxy_config(device_id: uuid.UUID, body: ProxyConfigurationInput, request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(require("agents.manage"))):
+    if not await db.get(Device,device_id):raise HTTPException(404,"Device not found")
+    item=await db.get(DeviceProxyConfiguration,device_id,with_for_update=True)
+    desired={"enabled":body.enabled,"host":body.host if body.enabled else None,"port":body.port if body.enabled else None,"bypass":body.bypass if body.enabled else [],"mode":body.mode}
+    previous=None if not item else {"enabled":item.enabled,"host":item.host,"port":item.port,"bypass":item.bypass,"mode":item.mode,"version":item.version}
+    if not item:
+        item=DeviceProxyConfiguration(device_id=device_id,version=1,**desired);db.add(item)
+    elif any(getattr(item,key)!=value for key,value in desired.items()):
+        for key,value in desired.items():setattr(item,key,value)
+        item.version+=1
+    await db.flush()
+    await record(db,request,user,"agent.proxy.configuration.update","device",str(device_id),"success",previous=previous,new={**desired,"version":item.version})
+    await db.commit()
+    return proxy_payload(item)
 
 
 @router.post("/heartbeat")
@@ -112,6 +147,13 @@ async def heartbeat(request: Request, body: Heartbeat, db: AsyncSession = Depend
     device.last_seen = device.last_heartbeat = now
     device.current_status = "ONLINE"
     device.metadata_ = {"active_ips": [str(v) for v in body.active_ips], "mac_addresses": body.mac_addresses, "gateway": str(body.gateway) if body.gateway else None, "dns": [str(v) for v in body.dns]}
+    if body.proxy_status:
+        proxy=await db.get(DeviceProxyConfiguration,device.id)
+        if proxy:
+            report=body.proxy_status
+            proxy.applied_version=report.applied_version;proxy.current_state=report.current_state;proxy.drift_detected=report.drift_detected
+            proxy.last_apply_result=report.last_apply_result;proxy.last_error=report.last_error;proxy.effective_host=report.effective_host;proxy.effective_port=report.effective_port
+            proxy.bypass_summary=report.bypass_summary;proxy.last_reported_at=now
     if previous != "ONLINE":
         db.add(DeviceStateTransition(device_id=device.id, previous_status=previous, new_status="ONLINE"))
     await db.commit()

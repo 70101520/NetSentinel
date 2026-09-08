@@ -15,7 +15,13 @@ public static class Program
         if (args.FirstOrDefault()?.Equals("status", StringComparison.OrdinalIgnoreCase) == true)
         {
             var state = await new StateStore(paths).LoadAsync(CancellationToken.None);
-            Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion }, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion, ProxyManagementEnabled = state.Proxy?.CurrentState == "configured", Proxy = state.Proxy }, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+        if (args.FirstOrDefault()?.Equals("restore-proxy", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            await ProxyConfigurationManager.RestoreBaselineAsync(new WinHttpProxyStore(), paths, CancellationToken.None);
+            Console.WriteLine("Original WinHTTP proxy baseline restored.");
             return 0;
         }
         if (args.FirstOrDefault()?.Equals("configure", StringComparison.OrdinalIgnoreCase) == true)
@@ -38,7 +44,9 @@ public static class Program
                 if (!Uri.TryCreate(settings.ServerUrl.TrimEnd('/') + "/", UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || (uri.Scheme == "http" && !settings.AllowHttp)) throw new InvalidOperationException("Agent:ServerUrl must use HTTPS unless AllowHttp is explicitly enabled for controlled testing");
                 http.BaseAddress = uri;
                 http.Timeout = TimeSpan.FromSeconds(settings.RequestTimeoutSeconds);
-            });
+            }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseProxy = false });
+            builder.Services.AddSingleton<IWindowsProxyStore, WinHttpProxyStore>();
+            builder.Services.AddSingleton<ProxyConfigurationManager>();
             builder.Services.AddHostedService<AgentWorker>();
             builder.Services.AddSerilog();
             await builder.Build().RunAsync();

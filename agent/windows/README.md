@@ -1,6 +1,6 @@
 # NetSentinel Windows Agent service foundation
 
-This directory contains the real endpoint-service foundation only: enrollment, machine-bound identity/credential persistence, authenticated heartbeat, recovery scheduling, bounded diagnostics, and reproducible service installation. It does not configure proxies, inspect traffic, inventory software, implement tamper protection, or expose a local control port.
+This directory contains enrollment, machine-bound identity/credential persistence, authenticated heartbeat, recovery scheduling, bounded diagnostics, reproducible service installation, and the WinHTTP proxy-configuration foundation. It does not enforce browser proxy settings, inspect traffic, inventory software, implement tamper protection, or expose a local control port. Proxy scope, baseline restoration, management-plane bypass, and limitations are documented in `docs/windows-agent-proxy-configuration.md`.
 
 ## Runtime and service model
 

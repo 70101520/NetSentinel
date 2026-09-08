@@ -3,8 +3,21 @@
 param([switch]$RemoveIdentity)
 $ErrorActionPreference = 'Stop'
 $service = Get-Service NetSentinelAgent -ErrorAction SilentlyContinue
-if ($service) { if ($service.Status -ne 'Stopped') { Stop-Service NetSentinelAgent -Force }; sc.exe delete NetSentinelAgent | Out-Null }
 $install = Join-Path $env:ProgramFiles 'NetSentinel\Agent'
+if ($service -and $service.Status -ne 'Stopped') { Stop-Service NetSentinelAgent -Force }
+$executable = Join-Path $install 'NetSentinel.Agent.exe'
+$baseline = Join-Path $env:ProgramData 'NetSentinel\Agent\proxy-baseline.json'
+if ((Test-Path -LiteralPath $executable) -and (Test-Path -LiteralPath $baseline)) { & $executable restore-proxy; if ($LASTEXITCODE -ne 0) { throw 'Proxy baseline restoration failed; uninstall stopped safely' } }
+$winHttpPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections'
+$winHttpKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($winHttpPath,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,[Security.AccessControl.RegistryRights]::ChangePermissions)
+if (-not $winHttpKey) { throw 'WinHTTP connection-settings registry key is unavailable' }
+$winHttpAcl = $winHttpKey.GetAccessControl()
+$winHttpRights = [Security.AccessControl.RegistryRights]::QueryValues -bor [Security.AccessControl.RegistryRights]::SetValue
+$winHttpRule = [Security.AccessControl.RegistryAccessRule]::new('NT AUTHORITY\LOCAL SERVICE',$winHttpRights,'None','None','Allow')
+$winHttpAcl.RemoveAccessRuleSpecific($winHttpRule)
+$winHttpKey.SetAccessControl($winHttpAcl)
+$winHttpKey.Dispose()
+if ($service) { sc.exe delete NetSentinelAgent | Out-Null }
 if (Test-Path $install) { Remove-Item -LiteralPath $install -Recurse -Force }
 if ($RemoveIdentity) {
     $data = Join-Path $env:ProgramData 'NetSentinel\Agent'
