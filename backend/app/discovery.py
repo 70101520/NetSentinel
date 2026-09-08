@@ -43,7 +43,7 @@ async def hosts(db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.
     return [{"id":h.id,"network_id":h.network_id,"network":n.name,"vlan":n.vlan,"ip_address":str(h.ip_address),"hostname":h.hostname,"status":h.state.lower(),"last_seen":h.last_seen,"open_ports":h.open_ports,"agent_installed":h.matched_device_id is not None,"device_id":h.matched_device_id} for h,n in rows]
 @router.post("/networks/{network_id}/scan")
 async def scan(network_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.manage"))):
-    item=await db.get(DiscoveryNetwork,network_id); 
+    item=await db.get(DiscoveryNetwork,network_id)
     if not item:raise HTTPException(404,"Discovery network not found")
     network=validated_network(item.cidr);addresses=[str(ip) for ip in network.hosts()];now=datetime.now(timezone.utc);item.last_started_at=now;item.last_status="RUNNING";await db.commit()
     semaphore=asyncio.Semaphore(settings.discovery_concurrency)
