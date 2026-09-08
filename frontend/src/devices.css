@@ -1,0 +1,19 @@
+.panelHead{align-items:center;gap:16px}
+.panelHead input{border:1px solid #d9e1e8;border-radius:5px;padding:7px 9px;color:#596b7f}
+.tableScroll{width:100%;overflow-x:auto;margin-top:14px}
+.deviceTable{width:100%;min-width:850px;border-collapse:collapse;table-layout:fixed}
+.deviceTable th,.deviceTable td{padding:12px 10px;text-align:left;vertical-align:top;border-bottom:1px solid #e8edf2;overflow-wrap:anywhere}
+.deviceTable th{color:#58687a;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.deviceTable th:nth-child(1){width:18%}.deviceTable th:nth-child(2){width:19%}.deviceTable th:nth-child(3){width:16%}.deviceTable th:nth-child(4){width:11%}.deviceTable th:nth-child(5){width:22%}.deviceTable th:nth-child(6){width:14%}
+.page tbody tr.historicalRow{color:#758293;background:#fafbfc}
+.page td{font-size:13px}.page td small,.primaryValue{display:block}.page td small{margin-top:3px}
+.statusBadge{display:inline-block;border-radius:999px;padding:4px 9px;background:#edf1f4;color:#526171;font-size:11px;font-weight:700;text-transform:capitalize}
+.statusBadge.online{background:#dff6ed;color:#087354}.statusBadge.offline{background:#fff0e2;color:#a5520b}.statusBadge.historical,.statusBadge.revoked{background:#edf1f4;color:#667585}
+.detail dl,.proxyConfig dl{grid-template-columns:150px minmax(0,1fr);gap:9px 16px}.detail dd,.proxyConfig dd{min-width:0}.breakValue{overflow-wrap:anywhere}
+.historyNotice{padding:10px 12px;background:#f3f5f7;border-radius:6px}
+.proxyConfig{margin-top:22px;padding-top:18px;border-top:1px solid #e3e9ee}
+.proxyConfig form{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(180px,1fr) 120px minmax(220px,1.2fr) auto;gap:12px;align-items:end;margin:14px 0 20px}
+.proxyConfig label{display:grid;gap:6px;font-size:12px;font-weight:600}.proxyConfig label:first-child{display:flex;align-items:center;align-self:center}
+.proxyConfig input:not([type=checkbox]),.proxyConfig textarea{width:100%;min-height:38px;border:1px solid #cfd9e2;border-radius:5px;padding:8px;font:inherit}.proxyConfig button{min-height:38px;white-space:nowrap}
+@media(max-width:1200px){.proxyConfig form{grid-template-columns:1fr 1fr}.proxyConfig form button{justify-self:start}}
+@media(max-width:700px){.panelHead{align-items:flex-start;flex-direction:column}.panelHead input{width:100%}.detail dl,.proxyConfig dl{grid-template-columns:1fr}.proxyConfig form{grid-template-columns:1fr}}
