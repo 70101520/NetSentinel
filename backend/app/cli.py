@@ -1,7 +1,8 @@
-import asyncio,getpass,secrets,sys,uuid
+import asyncio,getpass,ipaddress,secrets,sys,uuid
 from sqlalchemy import func,select
 from app.db import SessionLocal
-from app.models import AuditEvent,Device,Permission,Role,RolePermission,ServiceCredential,User,UserRole
+from app.models import AuditEvent,Device,DiscoveryNetwork,Permission,Role,RolePermission,ServiceCredential,User,UserRole
+from app.config import settings
 from app.security import hash_password
 from app.service_auth import derive_secret
 PERMISSIONS=["dashboard.view","devices.view","devices.manage","policies.view","policies.manage","audit.view","web_logs.view","agents.manage","firewall.manage","reports.export","settings.manage"]
@@ -32,6 +33,26 @@ async def create_service(name:str,kind:str):
     secret=secrets.token_urlsafe(32); credential=ServiceCredential(id=uuid.uuid4(),name=name,kind=kind,secret_hash=derive_secret(secret))
     async with SessionLocal() as db: db.add(credential); await db.commit()
     print(f"{credential.id}.{secret}")
+def primary_network(interface_cidr:str)->str:
+    try:interface=ipaddress.ip_interface(interface_cidr)
+    except ValueError:raise SystemExit("Primary interface CIDR is invalid")
+    allowed=(ipaddress.ip_network("10.0.0.0/8"),ipaddress.ip_network("172.16.0.0/12"),ipaddress.ip_network("192.168.0.0/16"))
+    network=interface.network
+    if interface.version!=4 or not any(network.subnet_of(item) for item in allowed):raise SystemExit("Primary interface must use an RFC1918 IPv4 network")
+    if sum(1 for _ in network.hosts())>settings.discovery_max_hosts_per_network:raise SystemExit("Primary network exceeds the configured discovery host limit")
+    return str(network)
+async def ensure_primary_discovery_network(interface_cidr:str):
+    cidr=primary_network(interface_cidr)
+    async with SessionLocal() as db:
+        item=await db.scalar(select(DiscoveryNetwork).where(DiscoveryNetwork.name=="Primary server network"))
+        if item:
+            changed=item.cidr!=cidr;item.cidr=cidr;item.enabled=True
+        else:
+            changed=True;item=DiscoveryNetwork(name="Primary server network",cidr=cidr,vlan="Primary LAN",enabled=True,interval_seconds=900,probe_ports=[22,80,443,445,3128,3389,8080]);db.add(item)
+        if changed:
+            await db.flush();db.add(AuditEvent(actor_id=None,action="discovery.primary_network.configure",resource_type="discovery_network",resource_id=str(item.id),source_ip=None,previous_value=None,new_value={"cidr":cidr},result="success",request_id=f"cli-{uuid.uuid4()}"))
+        await db.commit()
+    print(f"Primary discovery network configured: {cidr}")
 
 def synthetic_signature(device:Device)->bool:
     lifecycle={"ALPHA":"filter-000","BRAVO":"filter-001","CHARLIE":"filter-002"}
@@ -61,4 +82,5 @@ if __name__=="__main__":
     elif len(sys.argv)==3 and sys.argv[1]=="reset-admin-password": asyncio.run(reset_admin_password(sys.argv[2]))
     elif len(sys.argv)==4 and sys.argv[1]=="create-service-token": asyncio.run(create_service(sys.argv[2],sys.argv[3]))
     elif len(sys.argv)>=3 and sys.argv[1]=="purge-synthetic-devices": asyncio.run(purge_synthetic_devices([value for value in sys.argv[2:] if value!="--confirm"],"--confirm" in sys.argv[2:]))
-    else: raise SystemExit("usage: python -m app.cli create-admin EMAIL | reset-admin-password EMAIL | create-service-token NAME KIND | purge-synthetic-devices UUID... [--confirm]")
+    elif len(sys.argv)==3 and sys.argv[1]=="ensure-primary-discovery-network": asyncio.run(ensure_primary_discovery_network(sys.argv[2]))
+    else: raise SystemExit("usage: python -m app.cli create-admin EMAIL | reset-admin-password EMAIL | create-service-token NAME KIND | purge-synthetic-devices UUID... [--confirm] | ensure-primary-discovery-network INTERFACE_CIDR")
