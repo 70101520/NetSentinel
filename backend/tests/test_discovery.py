@@ -1,0 +1,22 @@
+import asyncio
+import pytest
+from fastapi import HTTPException
+from app.discovery import probe,validated_network
+
+def test_discovery_accepts_only_bounded_rfc1918_networks():
+    assert str(validated_network("192.168.32.0/24"))=="192.168.32.0/24"
+    for value in ("8.8.8.0/24","192.0.2.0/24","192.168.32.1/24","10.0.0.0/16","::1/128"):
+        with pytest.raises(HTTPException):validated_network(value)
+
+@pytest.mark.asyncio
+async def test_refused_port_still_identifies_reachable_host(monkeypatch):
+    async def refused(*_args,**_kwargs):raise ConnectionRefusedError()
+    monkeypatch.setattr(asyncio,"open_connection",refused)
+    result=await probe("192.168.32.10",[445],asyncio.Semaphore(1))
+    assert result[0]=="192.168.32.10" and result[2]==[]
+
+@pytest.mark.asyncio
+async def test_timeout_does_not_invent_a_host(monkeypatch):
+    async def timeout(*_args,**_kwargs):raise asyncio.TimeoutError()
+    monkeypatch.setattr(asyncio,"open_connection",timeout)
+    assert await probe("192.168.32.11",[445],asyncio.Semaphore(1)) is None
