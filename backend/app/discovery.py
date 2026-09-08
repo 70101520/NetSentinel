@@ -1,15 +1,17 @@
 import asyncio,ipaddress,socket,uuid
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
+import structlog
 from fastapi import APIRouter,Depends,HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
-from app.db import get_db
+from app.db import SessionLocal,get_db
 from app.models import Device,DiscoveryHost,DiscoveryNetwork,User
 from app.schemas import DiscoveryNetworkInput,DiscoveryNetworkOut
 from app.security import require
 router=APIRouter(prefix="/api/v1/discovery",tags=["discovery"])
+log=structlog.get_logger("device_discovery")
 def validated_network(value:str):
     try: network=ipaddress.ip_network(value,strict=True)
     except ValueError: raise HTTPException(422,"A canonical network CIDR is required")
@@ -41,10 +43,7 @@ async def create_network(body:DiscoveryNetworkInput,db:AsyncSession=Depends(get_
 async def hosts(db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
     rows=(await db.execute(select(DiscoveryHost,DiscoveryNetwork).join(DiscoveryNetwork).order_by(DiscoveryHost.ip_address))).all()
     return [{"id":h.id,"network_id":h.network_id,"network":n.name,"vlan":n.vlan,"ip_address":str(h.ip_address),"hostname":h.hostname,"status":h.state.lower(),"last_seen":h.last_seen,"open_ports":h.open_ports,"agent_installed":h.matched_device_id is not None,"device_id":h.matched_device_id} for h,n in rows]
-@router.post("/networks/{network_id}/scan")
-async def scan(network_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.manage"))):
-    item=await db.get(DiscoveryNetwork,network_id)
-    if not item:raise HTTPException(404,"Discovery network not found")
+async def execute_scan(item:DiscoveryNetwork,db:AsyncSession):
     network=validated_network(item.cidr);addresses=[str(ip) for ip in network.hosts()];now=datetime.now(timezone.utc);item.last_started_at=now;item.last_status="RUNNING";await db.commit()
     semaphore=asyncio.Semaphore(settings.discovery_concurrency)
     results=[v for v in await asyncio.gather(*(probe(ip,item.probe_ports,semaphore) for ip in addresses)) if v]
@@ -52,5 +51,25 @@ async def scan(network_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depen
     for host in existing.values():host.state="OFFLINE"
     for ip,hostname,ports in results:
         host=existing.get(ip) or DiscoveryHost(network_id=item.id,ip_address=ip);db.add(host);host.hostname=hostname;host.open_ports=ports;host.last_seen=now;host.state="ONLINE";host.matched_device_id=devices.get(ip)
-    item.last_completed_at=now;item.last_status="SUCCESS";item.last_error=None;item.last_host_count=len(results);await db.commit()
+    item.last_completed_at=datetime.now(timezone.utc);item.last_status="SUCCESS";item.last_error=None;item.last_host_count=len(results);await db.commit()
     return {"status":"completed","hosts_online":len(results),"addresses_scanned":len(addresses)}
+@router.post("/networks/{network_id}/scan")
+async def scan(network_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.manage"))):
+    item=await db.get(DiscoveryNetwork,network_id)
+    if not item:raise HTTPException(404,"Discovery network not found")
+    try:return await execute_scan(item,db)
+    except Exception as exc:
+        await db.rollback();item=await db.get(DiscoveryNetwork,network_id);item.last_completed_at=datetime.now(timezone.utc);item.last_status="FAILED";item.last_error=type(exc).__name__[:300];await db.commit();raise
+async def discovery_scheduler(stop:asyncio.Event):
+    while not stop.is_set():
+        try:
+            async with SessionLocal() as db:
+                now=datetime.now(timezone.utc);items=(await db.scalars(select(DiscoveryNetwork).where(DiscoveryNetwork.enabled.is_(True)))).all()
+                due=[item for item in items if item.last_started_at is None or item.last_started_at+timedelta(seconds=item.interval_seconds)<=now]
+                for item in due:
+                    try:await execute_scan(item,db)
+                    except Exception as exc:
+                        await db.rollback();failed=await db.get(DiscoveryNetwork,item.id);failed.last_completed_at=datetime.now(timezone.utc);failed.last_status="FAILED";failed.last_error=type(exc).__name__[:300];await db.commit();log.error("scheduled_discovery_failed",network_id=str(item.id),error_type=type(exc).__name__)
+        except Exception as exc:log.error("discovery_scheduler_failure",error_type=type(exc).__name__)
+        try:await asyncio.wait_for(stop.wait(),settings.discovery_scheduler_interval_seconds)
+        except asyncio.TimeoutError:pass
