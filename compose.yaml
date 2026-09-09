@@ -36,6 +36,12 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks: [edge, data]
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
@@ -56,7 +62,8 @@ services:
     cpus: 1.0
   portal:
     build: ./frontend
-    depends_on: [api]
+    depends_on:
+      api: {condition: service_healthy}
     ports: ['8080:8080']
     networks: [edge]
     restart: unless-stopped
