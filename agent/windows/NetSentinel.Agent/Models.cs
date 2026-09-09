@@ -7,8 +7,8 @@ public sealed class AgentOptions
     public const string Section = "Agent";
     public string ServerUrl { get; set; } = "";
     public int RequestTimeoutSeconds { get; set; } = 15;
-    public int MinimumHeartbeatSeconds { get; set; } = 15;
-    public int HeartbeatIntervalSeconds { get; set; } = 15;
+    public int MinimumHeartbeatSeconds { get; set; } = 5;
+    public int HeartbeatIntervalSeconds { get; set; } = 5;
     public string LogLevel { get; set; } = "Information";
     public bool AllowHttp { get; set; } = false;
 }
@@ -17,7 +17,7 @@ public sealed record LocalState(
     Guid InstallationId,
     Guid? DeviceId = null,
     Guid? AgentIdentity = null,
-    int HeartbeatIntervalSeconds = 15,
+    int HeartbeatIntervalSeconds = 5,
     string Enrollment = "NotEnrolled",
     string Server = "Unknown",
     DateTimeOffset? LastHeartbeat = null,
@@ -87,7 +87,9 @@ public sealed record SystemMetrics(
     [property: JsonPropertyName("network_receive_bps")] double? NetworkReceiveBps,
     [property: JsonPropertyName("network_send_bps")] double? NetworkSendBps,
     [property: JsonPropertyName("network_utilization_percent")] double? NetworkUtilizationPercent,
-    [property: JsonPropertyName("sampled_at")] DateTimeOffset SampledAt);
+    [property: JsonPropertyName("sampled_at")] DateTimeOffset SampledAt,
+    [property: JsonPropertyName("network_adapter")] string? NetworkAdapter = null,
+    [property: JsonPropertyName("sample_window_seconds")] double? SampleWindowSeconds = null);
 
 public sealed record HeartbeatRequest(
     [property: JsonPropertyName("device_id")] Guid DeviceId,
@@ -106,4 +108,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.4.2"; }
+public static class AgentVersion { public const string Current = "0.4.3"; }

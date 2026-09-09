@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validato
 class Token(BaseModel): access_token:str; token_type:str="bearer"; expires_in:int
 class PageMeta(BaseModel): page:int; page_size:int; total:int; pages:int
 class SystemMetrics(BaseModel):
-    cpu_percent:float|None=Field(None,ge=0,le=100);memory_percent:float|None=Field(None,ge=0,le=100);disk_percent:float|None=Field(None,ge=0,le=100);network_receive_bps:float|None=Field(None,ge=0);network_send_bps:float|None=Field(None,ge=0);network_utilization_percent:float|None=Field(None,ge=0,le=100);sampled_at:datetime
+    cpu_percent:float|None=Field(None,ge=0,le=100);memory_percent:float|None=Field(None,ge=0,le=100);disk_percent:float|None=Field(None,ge=0,le=100);network_receive_bps:float|None=Field(None,ge=0);network_send_bps:float|None=Field(None,ge=0);network_utilization_percent:float|None=Field(None,ge=0,le=100);sampled_at:datetime;network_adapter:str|None=Field(None,max_length=255);sample_window_seconds:float|None=Field(None,ge=0,le=300)
 class DeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; active_ips:list[str]=Field(default_factory=list); os_name:str|None; os_version:str|None=None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None; enrollment_state:str|None=None; system_metrics:SystemMetrics|None=None

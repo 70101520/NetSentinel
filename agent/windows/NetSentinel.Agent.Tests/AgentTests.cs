@@ -123,12 +123,19 @@ public sealed class AgentTests : IDisposable
     }
 
     [Fact]
-    public void System_snapshot_reports_bounded_resource_metrics()
+    public async Task System_snapshot_reports_bounded_resource_metrics()
     {
-        var snapshot=new WindowsSystemSnapshot().Capture(Guid.NewGuid());
+        var collector=new WindowsSystemSnapshot();
+        _=collector.Capture(Guid.NewGuid());
+        await Task.Delay(100);
+        var snapshot=collector.Capture(Guid.NewGuid());
         Assert.NotNull(snapshot.SystemMetrics);
         Assert.InRange(snapshot.SystemMetrics.MemoryPercent!.Value,0,100);
         Assert.InRange(snapshot.SystemMetrics.DiskPercent!.Value,0,100);
+        Assert.NotNull(snapshot.SystemMetrics.NetworkAdapter);
+        Assert.InRange(snapshot.SystemMetrics.SampleWindowSeconds!.Value,0.05,1);
+        Assert.True(snapshot.SystemMetrics.NetworkReceiveBps!.Value>=0);
+        Assert.True(snapshot.SystemMetrics.NetworkSendBps!.Value>=0);
     }
 
     [Fact]

@@ -27,8 +27,8 @@ public sealed class WindowsSystemSnapshot : ISystemSnapshot
         var gateway = properties.SelectMany(value => value.GatewayAddresses).Select(value => value.Address.ToString()).FirstOrDefault();
         var dns = properties.SelectMany(value => value.DnsAddresses).Select(value => value.ToString()).Distinct().Take(16).ToArray();
         var uptime = Environment.TickCount64 / 1000;
-        var trafficInterfaces = interfaces.Where(HasIpv4DefaultGateway).ToArray();
-        if (trafficInterfaces.Length == 0) trafficInterfaces = interfaces.Where(IsTrafficInterface).ToArray();
+        var trafficInterfaces = interfaces.Where(HasIpv4DefaultGateway).Take(1).ToArray();
+        if (trafficInterfaces.Length == 0) trafficInterfaces = interfaces.Where(IsTrafficInterface).Take(1).ToArray();
         return new(deviceId, DateTimeOffset.UtcNow, Environment.MachineName, InteractiveUser(), AgentVersion.Current, "Windows", OsVersion(), ips, macs, gateway, dns, DateTimeOffset.UtcNow.AddSeconds(-uptime), uptime, SystemMetrics: CaptureMetrics(trafficInterfaces));
     }
 
@@ -57,14 +57,14 @@ public sealed class WindowsSystemSnapshot : ISystemSnapshot
             {
                 try{var stats=item.GetIPStatistics();received+=stats.BytesReceived;sent+=stats.BytesSent;if(item.Speed>0)speed+=item.Speed;}catch(NetworkInformationException){}
             }
-            double? receiveBps=null,sendBps=null,networkPercent=null;
+            double? receiveBps=null,sendBps=null,networkPercent=null,sampleWindowSeconds=null;
             if(previousReceived is not null&&previousSent is not null&&previousNetworkSample is not null)
             {
                 var seconds=(sampledAt-previousNetworkSample.Value).TotalSeconds;
-                if(seconds>0){receiveBps=Math.Max(0,(received-previousReceived.Value)/seconds);sendBps=Math.Max(0,(sent-previousSent.Value)/seconds);if(speed>0)networkPercent=ClampPercent((receiveBps.Value+sendBps.Value)*8d*100d/speed);}
+                if(seconds>0){sampleWindowSeconds=seconds;receiveBps=Math.Max(0,(received-previousReceived.Value)/seconds);sendBps=Math.Max(0,(sent-previousSent.Value)/seconds);if(speed>0)networkPercent=ClampPercent((receiveBps.Value+sendBps.Value)*8d*100d/speed);}
             }
             previousReceived=received;previousSent=sent;previousNetworkSample=sampledAt;
-            return new(cpu,memory,disk,receiveBps,sendBps,networkPercent,sampledAt);
+            return new(cpu,memory,disk,receiveBps,sendBps,networkPercent,sampledAt,interfaces.FirstOrDefault()?.Name,sampleWindowSeconds is null?null:Math.Round(sampleWindowSeconds.Value,2));
         }
     }
 
