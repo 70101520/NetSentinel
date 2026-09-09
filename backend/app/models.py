@@ -119,6 +119,7 @@ class SnmpDevice(Base):
     __table_args__=(UniqueConstraint("ip_address","port",name="uq_snmp_device_target"),)
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
     name: Mapped[str]=mapped_column(String(100),unique=True)
+    vendor: Mapped[str]=mapped_column(String(30),default="generic")
     ip_address: Mapped[str]=mapped_column(INET)
     port: Mapped[int]=mapped_column(Integer,default=161)
     version: Mapped[str]=mapped_column(String(10),default="3")
