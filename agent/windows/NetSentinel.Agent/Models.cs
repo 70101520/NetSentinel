@@ -8,6 +8,7 @@ public sealed class AgentOptions
     public string ServerUrl { get; set; } = "";
     public int RequestTimeoutSeconds { get; set; } = 15;
     public int MinimumHeartbeatSeconds { get; set; } = 15;
+    public int HeartbeatIntervalSeconds { get; set; } = 15;
     public string LogLevel { get; set; } = "Information";
     public bool AllowHttp { get; set; } = false;
 }
@@ -16,7 +17,7 @@ public sealed record LocalState(
     Guid InstallationId,
     Guid? DeviceId = null,
     Guid? AgentIdentity = null,
-    int HeartbeatIntervalSeconds = 60,
+    int HeartbeatIntervalSeconds = 15,
     string Enrollment = "NotEnrolled",
     string Server = "Unknown",
     DateTimeOffset? LastHeartbeat = null,
@@ -105,4 +106,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.4.0"; }
+public static class AgentVersion { public const string Current = "0.4.1"; }

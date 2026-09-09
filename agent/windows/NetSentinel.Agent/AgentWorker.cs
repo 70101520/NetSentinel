@@ -24,7 +24,7 @@ public sealed class AgentWorker(
         catch (InvalidDataException ex) { logger.LogCritical("Local state is invalid: {Reason}", ex.Message); return; }
         if (state.AgentVersion != AgentVersion.Current)
         {
-            state = state with { AgentVersion = AgentVersion.Current };
+            state = state with { AgentVersion = AgentVersion.Current, HeartbeatIntervalSeconds = Math.Max(options.Value.MinimumHeartbeatSeconds, options.Value.HeartbeatIntervalSeconds) };
             await states.SaveAsync(state, stoppingToken);
             logger.LogInformation("Local agent state upgraded to version {Version}", AgentVersion.Current);
         }
@@ -99,6 +99,22 @@ public sealed class AgentWorker(
             }
         }
         logger.LogInformation("Agent service stopped cleanly");
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+        try
+        {
+            var state = await states.LoadAsync(CancellationToken.None);
+            var credential = await secrets.LoadCredentialAsync(CancellationToken.None);
+            if (state.DeviceId is not null && !string.IsNullOrWhiteSpace(credential))
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                if (await client.ReportOfflineAsync(credential, timeout.Token)) logger.LogInformation("Offline state reported during service stop");
+            }
+        }
+        catch (Exception ex) { logger.LogWarning("Unable to report service stop: {Reason}", ex.GetType().Name); }
     }
 
     private async Task<(LocalState State, string? Credential)> AwaitPortalApprovalAsync(LocalState state, CancellationToken ct)

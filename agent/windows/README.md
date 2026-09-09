@@ -6,7 +6,7 @@ This directory contains enrollment, machine-bound identity/credential persistenc
 
 The agent is a self-contained .NET 8 Windows Worker Service (`win-x64`) hosted by the Windows Service Control Manager as `NetSentinelAgent`. SCM configures automatic startup and bounded recovery restarts. The Generic Host passes SCM stop/shutdown into a cancellation token, and all waits are cancellable. The current service runs as `NT AUTHORITY\LocalService`; this foundation requires outbound HTTP(S), read-only machine/network/session metadata, and write access only to its protected ProgramData directory. It does not request LocalSystem, administrator, debug, driver, firewall, or impersonation privileges.
 
-Versioning follows SemVer. This release reports `0.4.0`. CI produces both the self-contained binary bundle and a Windows Setup executable. Remote unattended update is intentionally absent.
+Versioning follows SemVer. This release reports `0.4.1`. CI produces both the self-contained binary bundle and a Windows Setup executable. Remote unattended update is intentionally absent.
 
 ## Local security model
 
@@ -30,7 +30,7 @@ Uninstall with `.\uninstall-agent.ps1`; identity is retained. Use `-RemoveIdenti
 
 ## Scheduling and recovery
 
-The server heartbeat interval is honored subject to the local minimum. Transient HTTP, timeout, DNS, and network failures use 5, 15, 30, then 60-second bounded backoff. Every delay receives ±15% jitter. Success returns to the normal interval. HTTP 401/403 marks `CredentialInvalid`, stops retries, and requires administrator recovery; revocation is never bypassed.
+The normal online heartbeat interval is 15 seconds. The portal refreshes agent state every 5 seconds and the server declares an abruptly disconnected endpoint offline after three missed heartbeats (45 seconds). A graceful Windows service stop also sends a bounded authenticated offline notification. Transient HTTP, timeout, DNS, and network failures use 5, 15, 30, then 60-second bounded backoff. Every delay receives ±15% jitter. Success returns to the normal interval. HTTP 401/403 marks `CredentialInvalid`, stops retries, and requires administrator recovery; revocation is never bypassed.
 
 Heartbeat contains only approved bounded foundation data, including current CPU, memory, fixed-disk and aggregate active-interface throughput measurements. Interactive username is read through Windows Terminal Services without impersonation or access to user content.
 

@@ -73,6 +73,12 @@ async def test_complete_endpoint_lifecycle_and_inventory(client):
     assert details.json()["system_metrics"]["cpu_percent"] == 25.5
     listed_device=(await client.get("/api/v1/devices?hostname=PC-001")).json()["items"][0]
     assert listed_device["enrollment_state"]=="ENROLLED" and listed_device["system_metrics"]["memory_percent"]==50.0
+    stopped=await client.post("/api/v1/agents/offline",headers={"X-Agent-Credential":credential})
+    assert stopped.status_code==200
+    assert (await client.get("/api/v1/devices?hostname=PC-001")).json()["items"][0]["status"]=="offline"
+    async with SessionLocal() as db:
+        assert (await db.get(Device,uuid.UUID(identity["device_id"]))).current_status=="OFFLINE"
+    assert (await client.post("/api/v1/agents/heartbeat",json=heartbeat_body(identity["device_id"]),headers={"X-Agent-Credential":credential})).status_code==200
     rotated = await client.post(f"/api/v1/agents/devices/{identity['device_id']}/rotate-credential")
     new_credential = rotated.json()["credential"]
     assert (await client.post("/api/v1/agents/heartbeat", json=heartbeat_body(identity["device_id"]), headers={"X-Agent-Credential": credential})).status_code == 401

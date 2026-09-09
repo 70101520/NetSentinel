@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=32)
     jwt_issuer: str = "netsentinel"
     access_token_minutes: int = Field(default=15, ge=5, le=60)
-    agent_heartbeat_timeout_seconds: int = Field(default=180, ge=30)
-    agent_heartbeat_interval_seconds: int = Field(default=60, ge=15, le=3600)
+    agent_heartbeat_timeout_seconds: int = Field(default=45, ge=30)
+    agent_heartbeat_interval_seconds: int = Field(default=15, ge=15, le=3600)
     agent_max_body_bytes: int = Field(default=65_536, ge=4096, le=1_048_576)
     agent_enrollment_rate_limit: int = Field(default=20, ge=1, le=1000)
     agent_enrollment_rate_window_seconds: int = Field(default=60, ge=1, le=3600)

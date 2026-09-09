@@ -54,4 +54,13 @@ public sealed class ManagementClient(HttpClient http)
         catch (HttpRequestException) { return HeartbeatResult.TransientFailure; }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return HeartbeatResult.TransientFailure; }
     }
+
+    public async Task<bool> ReportOfflineAsync(string credential, CancellationToken ct)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, "api/v1/agents/offline");
+        message.Headers.Add("X-Agent-Credential", credential);
+        try { using var response = await http.SendAsync(message, ct); return response.IsSuccessStatusCode; }
+        catch (HttpRequestException) { return false; }
+        catch (TaskCanceledException) { return false; }
+    }
 }

@@ -114,6 +114,15 @@ public sealed class AgentTests : IDisposable
     }
 
     [Fact]
+    public async Task Graceful_stop_reports_offline_with_agent_credential()
+    {
+        var client = new ManagementClient(new HttpClient(new StubHandler(HttpStatusCode.OK)) { BaseAddress = new Uri("https://server/") });
+        Assert.True(await client.ReportOfflineAsync("device.secret", default));
+        var offline = new ManagementClient(new HttpClient(new StubHandler()) { BaseAddress = new Uri("https://server/") });
+        Assert.False(await offline.ReportOfflineAsync("device.secret", default));
+    }
+
+    [Fact]
     public void System_snapshot_reports_bounded_resource_metrics()
     {
         var snapshot=new WindowsSystemSnapshot().Capture(Guid.NewGuid());

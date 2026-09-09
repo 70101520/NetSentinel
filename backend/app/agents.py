@@ -221,6 +221,16 @@ async def heartbeat(request: Request, body: Heartbeat, db: AsyncSession = Depend
     return {"status": "accepted", "server_time": now, "next_heartbeat_seconds": settings.agent_heartbeat_interval_seconds}
 
 
+@router.post("/offline")
+async def agent_offline(request: Request, db: AsyncSession = Depends(get_db), device: Device = Depends(authenticated_agent_header)):
+    if device.current_status != "OFFLINE":
+        previous = device.current_status
+        device.current_status = "OFFLINE"
+        db.add(DeviceStateTransition(device_id=device.id, previous_status=previous, new_status="OFFLINE"))
+        await db.commit()
+    return {"status": "accepted"}
+
+
 @router.post("/devices/{device_id}/revoke")
 async def revoke_device(device_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(require("agents.manage"))):
     device = await db.get(Device, device_id, with_for_update=True)
