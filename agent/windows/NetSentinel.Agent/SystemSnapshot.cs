@@ -1,4 +1,5 @@
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
@@ -26,7 +27,9 @@ public sealed class WindowsSystemSnapshot : ISystemSnapshot
         var gateway = properties.SelectMany(value => value.GatewayAddresses).Select(value => value.Address.ToString()).FirstOrDefault();
         var dns = properties.SelectMany(value => value.DnsAddresses).Select(value => value.ToString()).Distinct().Take(16).ToArray();
         var uptime = Environment.TickCount64 / 1000;
-        return new(deviceId, DateTimeOffset.UtcNow, Environment.MachineName, InteractiveUser(), AgentVersion.Current, "Windows", OsVersion(), ips, macs, gateway, dns, DateTimeOffset.UtcNow.AddSeconds(-uptime), uptime, SystemMetrics: CaptureMetrics(interfaces));
+        var trafficInterfaces = interfaces.Where(HasIpv4DefaultGateway).ToArray();
+        if (trafficInterfaces.Length == 0) trafficInterfaces = interfaces.Where(IsTrafficInterface).ToArray();
+        return new(deviceId, DateTimeOffset.UtcNow, Environment.MachineName, InteractiveUser(), AgentVersion.Current, "Windows", OsVersion(), ips, macs, gateway, dns, DateTimeOffset.UtcNow.AddSeconds(-uptime), uptime, SystemMetrics: CaptureMetrics(trafficInterfaces));
     }
 
     private SystemMetrics CaptureMetrics(NetworkInterface[] interfaces)
@@ -50,7 +53,7 @@ public sealed class WindowsSystemSnapshot : ISystemSnapshot
             double? disk=null;
             try{var drives=DriveInfo.GetDrives().Where(value=>value.IsReady&&value.DriveType==DriveType.Fixed).ToArray();var total=drives.Sum(value=>(double)value.TotalSize);var free=drives.Sum(value=>(double)value.AvailableFreeSpace);if(total>0)disk=ClampPercent(100d*(total-free)/total);}catch(IOException){}
             long received=0,sent=0,speed=0;
-            foreach(var item in interfaces.Where(value=>value.NetworkInterfaceType is not NetworkInterfaceType.Loopback and not NetworkInterfaceType.Tunnel))
+            foreach(var item in interfaces.Where(IsTrafficInterface))
             {
                 try{var stats=item.GetIPStatistics();received+=stats.BytesReceived;sent+=stats.BytesSent;if(item.Speed>0)speed+=item.Speed;}catch(NetworkInformationException){}
             }
@@ -66,6 +69,13 @@ public sealed class WindowsSystemSnapshot : ISystemSnapshot
     }
 
     private static double ClampPercent(double value)=>Math.Round(Math.Clamp(value,0,100),2);
+    private static bool IsTrafficInterface(NetworkInterface value)=>value.NetworkInterfaceType is not NetworkInterfaceType.Loopback and not NetworkInterfaceType.Tunnel;
+    private static bool HasIpv4DefaultGateway(NetworkInterface value)
+    {
+        if (!IsTrafficInterface(value)) return false;
+        try { return value.GetIPProperties().GatewayAddresses.Any(item=>item.Address.AddressFamily==AddressFamily.InterNetwork&&!item.Address.Equals(System.Net.IPAddress.Any)); }
+        catch (NetworkInformationException) { return false; }
+    }
     private static ulong ToUInt64(FileTime value)=>((ulong)value.High<<32)|value.Low;
 
     private static string OsVersion() => Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "DisplayVersion", null)?.ToString() ?? Environment.OSVersion.VersionString;
