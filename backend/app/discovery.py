@@ -1,7 +1,7 @@
 import asyncio,ipaddress,socket,uuid
 from datetime import datetime,timedelta,timezone
 import structlog
-from fastapi import APIRouter,Depends,HTTPException
+from fastapi import APIRouter,Depends,HTTPException,Request
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from app.db import SessionLocal,get_db
 from app.models import Device,DiscoveryHost,DiscoveryNetwork,User
 from app.schemas import DiscoveryNetworkInput,DiscoveryNetworkOut
 from app.security import require
+from app.audit import record
 router=APIRouter(prefix="/api/v1/discovery",tags=["discovery"])
 log=structlog.get_logger("device_discovery")
 def validated_network(value:str):
@@ -31,6 +32,12 @@ async def probe(ip:str,ports:list[int],semaphore:asyncio.Semaphore):
         try: hostname=(await asyncio.to_thread(socket.gethostbyaddr,ip))[0][:255]
         except (OSError,socket.herror):hostname=None
         return ip,hostname,open_ports
+def agent_ip_map(devices):
+    result={}
+    for device in devices:
+        observed=[] if device.ip_address is None else [str(device.ip_address)];observed.extend(str(value) for value in (device.metadata_ or {}).get("active_ips",[]))
+        for address in observed:result.setdefault(address,device.id)
+    return result
 @router.get("/networks",response_model=list[DiscoveryNetworkOut])
 async def networks(db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):return list((await db.scalars(select(DiscoveryNetwork).order_by(DiscoveryNetwork.name))).all())
 @router.post("/networks",response_model=DiscoveryNetworkOut,status_code=201)
@@ -39,15 +46,25 @@ async def create_network(body:DiscoveryNetworkInput,db:AsyncSession=Depends(get_
     try:await db.commit()
     except IntegrityError:await db.rollback();raise HTTPException(409,"Discovery network name or CIDR already exists")
     await db.refresh(item);return item
+@router.delete("/networks/{network_id}")
+async def delete_network(network_id:uuid.UUID,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("devices.manage"))):
+    item=await db.get(DiscoveryNetwork,network_id)
+    if not item:raise HTTPException(404,"Discovery network not found")
+    if item.last_status=="RUNNING":raise HTTPException(409,"A running discovery scan cannot be removed")
+    host_count=len((await db.scalars(select(DiscoveryHost.id).where(DiscoveryHost.network_id==item.id))).all())
+    await record(db,request,user,"discovery.network.remove","discovery_network",str(item.id),"success",previous={"cidr":item.cidr,"vlan":item.vlan,"observations_removed":host_count})
+    await db.delete(item);await db.commit();return {"status":"removed"}
 @router.get("/hosts")
 async def hosts(db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
     rows=(await db.execute(select(DiscoveryHost,DiscoveryNetwork).join(DiscoveryNetwork).order_by(DiscoveryHost.ip_address))).all()
-    return [{"id":h.id,"network_id":h.network_id,"network":n.name,"vlan":n.vlan,"ip_address":str(h.ip_address),"hostname":h.hostname,"status":h.state.lower(),"last_seen":h.last_seen,"open_ports":h.open_ports,"agent_installed":h.matched_device_id is not None,"device_id":h.matched_device_id} for h,n in rows]
+    services={22:"SSH",80:"HTTP",443:"HTTPS",445:"SMB",3128:"HTTP Proxy",3306:"MySQL",3389:"RDP",5432:"PostgreSQL",8080:"HTTP Alternate"}
+    return [{"id":h.id,"network_id":h.network_id,"network":n.name,"cidr":n.cidr,"vlan":n.vlan,"ip_address":str(h.ip_address),"hostname":h.hostname,"status":h.state.lower(),"first_seen":h.first_seen,"last_seen":h.last_seen,"open_ports":h.open_ports,"services":[services.get(port,f"TCP {port}") for port in h.open_ports],"agent_installed":h.matched_device_id is not None,"device_id":h.matched_device_id} for h,n in rows]
 async def execute_scan(item:DiscoveryNetwork,db:AsyncSession):
     network=validated_network(item.cidr);addresses=[str(ip) for ip in network.hosts()];now=datetime.now(timezone.utc);item.last_started_at=now;item.last_status="RUNNING";await db.commit()
     semaphore=asyncio.Semaphore(settings.discovery_concurrency)
     results=[v for v in await asyncio.gather(*(probe(ip,item.probe_ports,semaphore) for ip in addresses)) if v]
-    existing={str(h.ip_address):h for h in (await db.scalars(select(DiscoveryHost).where(DiscoveryHost.network_id==item.id))).all()};devices={str(d.ip_address):d.id for d in (await db.scalars(select(Device).where(Device.ip_address.is_not(None)))).all()}
+    existing={str(h.ip_address):h for h in (await db.scalars(select(DiscoveryHost).where(DiscoveryHost.network_id==item.id))).all()};devices={}
+    enrolled=(await db.scalars(select(Device).where(Device.agent_identity.is_not(None),Device.enrollment_state=="ENROLLED").order_by(Device.last_heartbeat.desc().nullslast()))).all();devices=agent_ip_map(enrolled)
     for host in existing.values():host.state="OFFLINE"
     for ip,hostname,ports in results:
         host=existing.get(ip) or DiscoveryHost(network_id=item.id,ip_address=ip);db.add(host);host.hostname=hostname;host.open_ports=ports;host.last_seen=now;host.state="ONLINE";host.matched_device_id=devices.get(ip)
