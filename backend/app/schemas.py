@@ -77,6 +77,10 @@ class TelemetryBatch(BaseModel):
 class TelemetryAccepted(BaseModel): accepted:int; rejected:int=0; status:str="queued"
 class EnrollRequest(BaseModel):
     enrollment_token:str=Field(min_length=20,max_length=200); installation_id:str=Field(min_length=8,max_length=200); hostname:str=Field(min_length=1,max_length=255); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); architecture:str|None=Field(None,max_length=30); initial_ip:IPvAnyAddress|None=None; mac_address:str|None=Field(None,max_length=17); agent_version:str=Field(max_length=50)
+class PairingRequestInput(BaseModel):
+    pairing_secret:str=Field(min_length=32,max_length=200);installation_id:str=Field(min_length=8,max_length=200);hostname:str=Field(min_length=1,max_length=255);os_name:str=Field(max_length=100);os_version:str|None=Field(None,max_length=100);architecture:str|None=Field(None,max_length=30);agent_version:str=Field(max_length=50);initial_ip:IPvAnyAddress|None=None
+class PairingClaimInput(BaseModel):pairing_secret:str=Field(min_length=32,max_length=200)
+class PairingApprovalInput(BaseModel):group_name:str|None=Field(None,max_length=100);department:str|None=Field(None,max_length=100)
 class Heartbeat(BaseModel):
     device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0); proxy_status:ProxyStatus|None=None;system_metrics:SystemMetrics|None=None
 class DeviceAssignment(BaseModel):

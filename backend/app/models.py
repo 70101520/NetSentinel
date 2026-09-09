@@ -58,6 +58,14 @@ class Device(Base):
 class AgentEnrollment(Base):
     __tablename__="agent_enrollments"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); token_hash: Mapped[str]=mapped_column(String(64),unique=True); expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True)); used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id")); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); max_uses: Mapped[int]=mapped_column(Integer,default=1); use_count: Mapped[int]=mapped_column(Integer,default=0); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
+class AgentPairingRequest(Base):
+    __tablename__="agent_pairing_requests"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    installation_id: Mapped[str]=mapped_column(String(200),unique=True)
+    pairing_secret_hash: Mapped[str]=mapped_column(String(64))
+    pairing_code: Mapped[str]=mapped_column(String(12),unique=True)
+    hostname: Mapped[str]=mapped_column(String(255));os_name: Mapped[str]=mapped_column(String(100));os_version: Mapped[str|None]=mapped_column(String(100));architecture: Mapped[str|None]=mapped_column(String(30));agent_version: Mapped[str]=mapped_column(String(50));requested_ip: Mapped[str|None]=mapped_column(INET)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now());expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True));approved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));rejected_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));approved_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"));device_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("devices.id",ondelete="SET NULL"),unique=True);group_name: Mapped[str|None]=mapped_column(String(100));department: Mapped[str|None]=mapped_column(String(100))
 class DeviceStateTransition(Base):
     __tablename__="device_state_transitions"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE")); occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); previous_status: Mapped[str]=mapped_column(String(10)); new_status: Mapped[str]=mapped_column(String(10))

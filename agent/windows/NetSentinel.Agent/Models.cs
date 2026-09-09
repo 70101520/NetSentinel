@@ -23,7 +23,9 @@ public sealed record LocalState(
     DateTimeOffset? LastSuccess = null,
     int ConsecutiveFailures = 0,
     string AgentVersion = AgentVersion.Current,
-    ProxyRuntimeStatus? Proxy = null);
+    ProxyRuntimeStatus? Proxy = null,
+    Guid? PairingRequestId = null,
+    string? PairingCode = null);
 
 public sealed record ProxyConfiguration(bool Enabled, string? Host, int? Port, string[] Bypass, string Mode, long Version);
 public sealed record ProxyConfigurationEnvelope([property: JsonPropertyName("proxy")] ProxyConfiguration Proxy);
@@ -55,6 +57,27 @@ public sealed record EnrollResponse(
     [property: JsonPropertyName("server")] ServerPolicy Server);
 
 public sealed record ServerPolicy([property: JsonPropertyName("heartbeat_interval_seconds")] int HeartbeatIntervalSeconds);
+public sealed record PairingRequest(
+    [property: JsonPropertyName("pairing_secret")] string PairingSecret,
+    [property: JsonPropertyName("installation_id")] string InstallationId,
+    [property: JsonPropertyName("hostname")] string Hostname,
+    [property: JsonPropertyName("os_name")] string OsName,
+    [property: JsonPropertyName("os_version")] string OsVersion,
+    [property: JsonPropertyName("architecture")] string Architecture,
+    [property: JsonPropertyName("agent_version")] string AgentVersion,
+    [property: JsonPropertyName("initial_ip")] string? InitialIp);
+public sealed record PairingRegistration(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("pairing_code")] string PairingCode,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt);
+public sealed record PairingClaim(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("pairing_code")] string? PairingCode = null,
+    [property: JsonPropertyName("device_id")] Guid? DeviceId = null,
+    [property: JsonPropertyName("agent_identity")] Guid? AgentIdentity = null,
+    [property: JsonPropertyName("credential")] string? Credential = null,
+    [property: JsonPropertyName("server")] ServerPolicy? Server = null);
 
 public sealed record SystemMetrics(
     [property: JsonPropertyName("cpu_percent")] double? CpuPercent,
@@ -82,4 +105,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.3.0"; }
+public static class AgentVersion { public const string Current = "0.4.0"; }

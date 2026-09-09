@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record
 from app.config import settings
 from app.db import get_db
-from app.models import AgentEnrollment, Device, DeviceProxyConfiguration, DeviceStateTransition, User
-from app.schemas import DeviceAssignment, EnrollRequest, Heartbeat, ProxyConfigurationInput
+from app.models import AgentEnrollment, AgentPairingRequest, Device, DeviceProxyConfiguration, DeviceStateTransition, User
+from app.schemas import DeviceAssignment, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
 from app.security import require
 from app.service_auth import derive_secret
 
@@ -30,6 +30,65 @@ async def enforce_enrollment_limit(request: Request, token_digest: str) -> None:
     )
     if count > settings.agent_enrollment_rate_limit:
         raise HTTPException(429, "Enrollment rate limit exceeded")
+
+def pairing_status(item:AgentPairingRequest,now:datetime):
+    if item.rejected_at:return "rejected"
+    if item.expires_at<=now:return "expired"
+    if item.approved_at:return "approved"
+    return "pending"
+
+@router.post("/pairing-requests",status_code=201)
+async def request_pairing(request:Request,body:PairingRequestInput,db:AsyncSession=Depends(get_db)):
+    now=datetime.now(timezone.utc);digest=derive_secret(body.pairing_secret)
+    await enforce_enrollment_limit(request,digest)
+    if await db.scalar(select(Device.id).where(Device.device_identifier==body.installation_id)):raise HTTPException(409,"Installation is already enrolled")
+    item=await db.scalar(select(AgentPairingRequest).where(AgentPairingRequest.installation_id==body.installation_id).with_for_update())
+    if item and pairing_status(item,now) in {"pending","approved"}:
+        if not secrets.compare_digest(item.pairing_secret_hash,digest):raise HTTPException(409,"A pairing request already exists for this installation")
+    elif item:
+        item.pairing_secret_hash=digest;item.pairing_code=secrets.token_hex(4).upper();item.created_at=now;item.expires_at=now+timedelta(hours=24);item.approved_at=None;item.rejected_at=None;item.claimed_at=None;item.approved_by=None;item.device_id=None
+    else:
+        item=AgentPairingRequest(installation_id=body.installation_id,pairing_secret_hash=digest,pairing_code=secrets.token_hex(4).upper(),expires_at=now+timedelta(hours=24),hostname=body.hostname,os_name=body.os_name,os_version=body.os_version,architecture=body.architecture,agent_version=body.agent_version,requested_ip=str(body.initial_ip) if body.initial_ip else None);db.add(item)
+    item.hostname=body.hostname;item.os_name=body.os_name;item.os_version=body.os_version;item.architecture=body.architecture;item.agent_version=body.agent_version;item.requested_ip=str(body.initial_ip) if body.initial_ip else item.requested_ip
+    await db.commit();await db.refresh(item)
+    return {"id":item.id,"pairing_code":item.pairing_code,"status":pairing_status(item,now),"expires_at":item.expires_at}
+
+@router.post("/pairing-requests/{pairing_id}/claim")
+async def claim_pairing(pairing_id:uuid.UUID,body:PairingClaimInput,db:AsyncSession=Depends(get_db)):
+    now=datetime.now(timezone.utc);item=await db.get(AgentPairingRequest,pairing_id,with_for_update=True)
+    if not item or not secrets.compare_digest(item.pairing_secret_hash,derive_secret(body.pairing_secret)):raise HTTPException(401,"Invalid pairing request")
+    status=pairing_status(item,now)
+    if status=="pending":return {"status":"pending","pairing_code":item.pairing_code,"expires_at":item.expires_at}
+    if status=="rejected":raise HTTPException(403,"Pairing request was rejected")
+    if status=="expired":raise HTTPException(410,"Pairing request expired")
+    device=await db.get(Device,item.device_id)
+    if not device:raise HTTPException(409,"Approved pairing has no device identity")
+    item.claimed_at=now;await db.commit()
+    return {"status":"approved","device_id":device.id,"agent_identity":device.agent_identity,"credential":f"{device.id}.{body.pairing_secret}","server":{"heartbeat_interval_seconds":settings.agent_heartbeat_interval_seconds}}
+
+@router.get("/pairing-requests")
+async def list_pairings(db:AsyncSession=Depends(get_db),_:User=Depends(require("agents.manage"))):
+    now=datetime.now(timezone.utc);rows=(await db.scalars(select(AgentPairingRequest).order_by(AgentPairingRequest.created_at.desc()).limit(200))).all()
+    return [{"id":item.id,"pairing_code":item.pairing_code,"hostname":item.hostname,"os_name":item.os_name,"os_version":item.os_version,"architecture":item.architecture,"agent_version":item.agent_version,"requested_ip":str(item.requested_ip) if item.requested_ip else None,"created_at":item.created_at,"expires_at":item.expires_at,"status":pairing_status(item,now),"device_id":item.device_id,"group_name":item.group_name,"department":item.department} for item in rows]
+
+@router.post("/pairing-requests/{pairing_id}/approve")
+async def approve_pairing(pairing_id:uuid.UUID,body:PairingApprovalInput,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    now=datetime.now(timezone.utc);item=await db.get(AgentPairingRequest,pairing_id,with_for_update=True)
+    if not item:raise HTTPException(404,"Pairing request not found")
+    if pairing_status(item,now)!="pending":raise HTTPException(409,"Only a pending pairing request can be approved")
+    if await db.scalar(select(Device.id).where(Device.device_identifier==item.installation_id)):raise HTTPException(409,"Installation is already enrolled")
+    device=Device(device_identifier=item.installation_id,agent_identity=uuid.uuid4(),credential_hash=item.pairing_secret_hash,hostname=item.hostname,ip_address=item.requested_ip,os_name=item.os_name,os_version=item.os_version,architecture=item.architecture,agent_version=item.agent_version,last_seen=now,current_status="OFFLINE",group_name=body.group_name,department=body.department);db.add(device);await db.flush()
+    item.approved_at=now;item.approved_by=user.id;item.device_id=device.id;item.group_name=body.group_name;item.department=body.department
+    db.add(DeviceStateTransition(device_id=device.id,previous_status="UNENROLLED",new_status="OFFLINE"));await record(db,request,user,"agent.pairing.approve","agent_pairing",str(item.id),"success",new={"device_id":str(device.id),"hostname":device.hostname});await db.commit()
+    return {"id":item.id,"status":"approved","device_id":device.id}
+
+@router.post("/pairing-requests/{pairing_id}/reject")
+async def reject_pairing(pairing_id:uuid.UUID,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    now=datetime.now(timezone.utc);item=await db.get(AgentPairingRequest,pairing_id,with_for_update=True)
+    if not item:raise HTTPException(404,"Pairing request not found")
+    if pairing_status(item,now)!="pending":raise HTTPException(409,"Only a pending pairing request can be rejected")
+    item.rejected_at=now;await record(db,request,user,"agent.pairing.reject","agent_pairing",str(item.id),"success",new={"hostname":item.hostname});await db.commit()
+    return {"id":item.id,"status":"rejected"}
 
 
 @router.post("/enrollment-tokens")

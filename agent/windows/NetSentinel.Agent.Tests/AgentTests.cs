@@ -61,6 +61,38 @@ public sealed class AgentTests : IDisposable
         Assert.False(File.Exists(paths.BootstrapTokenPath));
     }
 
+    [Fact]
+    public async Task Pairing_secret_is_dpapi_protected_and_removed_after_claim()
+    {
+        var paths = new AgentPaths(root);
+        var store = new DpapiSecretStore(paths);
+        const string secret = "pairing-secret-that-must-never-be-plaintext";
+        await store.SavePairingSecretAsync(secret, default);
+        Assert.Equal(secret, await store.LoadPairingSecretAsync(default));
+        Assert.DoesNotContain(secret, Encoding.UTF8.GetString(await File.ReadAllBytesAsync(paths.PairingSecretPath)));
+        await store.DeletePairingSecretAsync(default);
+        Assert.False(File.Exists(paths.PairingSecretPath));
+    }
+
+    [Fact]
+    public async Task Portal_pairing_registration_and_claim_are_parsed()
+    {
+        var requestId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var registrationJson = $"{{\"id\":\"{requestId}\",\"pairing_code\":\"ABCD-1234\",\"status\":\"pending\",\"expires_at\":\"2030-01-01T00:00:00Z\"}}";
+        var registrationClient = new ManagementClient(new HttpClient(new JsonHandler(registrationJson)) { BaseAddress = new Uri("https://server/") });
+        var registration = await registrationClient.RequestPairingAsync(new PairingRequest("secret-value-long-enough", Guid.NewGuid().ToString(), "PC", "Windows", "11", "x64", AgentVersion.Current, "10.0.0.2"), default);
+        Assert.NotNull(registration);
+        Assert.Equal("ABCD-1234", registration.PairingCode);
+
+        var claimJson = $"{{\"status\":\"approved\",\"device_id\":\"{deviceId}\",\"agent_identity\":\"{requestId}\",\"credential\":\"credential\",\"server\":{{\"heartbeat_interval_seconds\":30}}}}";
+        var claimClient = new ManagementClient(new HttpClient(new JsonHandler(claimJson)) { BaseAddress = new Uri("https://server/") });
+        var claim = await claimClient.ClaimPairingAsync(requestId, "secret-value-long-enough", default);
+        Assert.NotNull(claim);
+        Assert.Equal(deviceId, claim.DeviceId);
+        Assert.Equal("credential", claim.Credential);
+    }
+
     [Theory]
     [InlineData(200, HeartbeatResult.Success)]
     [InlineData(401, HeartbeatResult.CredentialRejected)]

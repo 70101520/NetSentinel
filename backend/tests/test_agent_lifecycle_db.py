@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select, update
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.main import app
-from app.models import AgentEnrollment, AuditEvent, Device, DeviceStateTransition, Permission, Role, RolePermission, User, UserRole
+from app.models import AgentEnrollment, AgentPairingRequest, AuditEvent, Device, DeviceStateTransition, Permission, Role, RolePermission, User, UserRole
 from app.offline import mark_stale_devices_offline
 from app.security import issue_token
 from app.service_auth import derive_secret
@@ -19,7 +19,7 @@ from app.service_auth import derive_secret
 async def client():
     await engine.dispose()
     async with SessionLocal() as db:
-        await db.execute(delete(DeviceStateTransition)); await db.execute(delete(AuditEvent)); await db.execute(delete(Device)); await db.execute(delete(AgentEnrollment))
+        await db.execute(delete(DeviceStateTransition)); await db.execute(delete(AuditEvent)); await db.execute(delete(AgentPairingRequest)); await db.execute(delete(Device)); await db.execute(delete(AgentEnrollment))
         user = await db.scalar(select(User).where(User.email == "agent-tests@example.invalid"))
         if not user:
             user = User(email="agent-tests@example.invalid", password_hash="unused")
@@ -102,6 +102,28 @@ async def test_token_denials_rate_limit_and_atomic_usage(client):
         db.add_all([expired, revoked, exhausted]); await db.commit()
     for index, raw in enumerate(("e" * 32, "r" * 32, "u" * 32)):
         assert (await client.post("/api/v1/agents/enroll", json=enrollment_body(raw, f"denied-{index:03d}"))).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_portal_approved_pairing_never_returns_secret_to_administrator(client):
+    secret="pairing-secret-value-that-is-long-enough"
+    request_body={"pairing_secret":secret,"installation_id":"paired-install-001","hostname":"PAIR-PC","os_name":"Windows","os_version":"11","architecture":"x64","agent_version":"0.4.0","initial_ip":"192.0.2.55"}
+    requested=await client.post("/api/v1/agents/pairing-requests",json=request_body)
+    assert requested.status_code==201 and requested.json()["status"]=="pending"
+    pairing_id=requested.json()["id"]
+    pending=(await client.post(f"/api/v1/agents/pairing-requests/{pairing_id}/claim",json={"pairing_secret":secret}))
+    assert pending.status_code==200 and pending.json()["status"]=="pending"
+    listed=(await client.get("/api/v1/agents/pairing-requests")).json()
+    assert listed[0]["pairing_code"]==requested.json()["pairing_code"] and secret not in str(listed)
+    approved=await client.post(f"/api/v1/agents/pairing-requests/{pairing_id}/approve",json={"group_name":"HQ","department":"IT"})
+    assert approved.status_code==200
+    claimed=await client.post(f"/api/v1/agents/pairing-requests/{pairing_id}/claim",json={"pairing_secret":secret})
+    assert claimed.status_code==200 and claimed.json()["status"]=="approved" and claimed.json()["credential"].endswith(secret)
+    repeated=await client.post(f"/api/v1/agents/pairing-requests/{pairing_id}/claim",json={"pairing_secret":secret})
+    assert repeated.status_code==200 and repeated.json()["device_id"]==claimed.json()["device_id"]
+    assert (await client.post(f"/api/v1/agents/pairing-requests/{pairing_id}/claim",json={"pairing_secret":secret+"bad"})).status_code==401
+    async with SessionLocal() as db:
+        device=await db.get(Device,uuid.UUID(claimed.json()["device_id"]));assert device.group_name=="HQ" and str(device.ip_address)=="192.0.2.55"
 
 
 @pytest.mark.asyncio

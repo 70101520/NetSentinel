@@ -15,7 +15,7 @@ public static class Program
         if (args.FirstOrDefault()?.Equals("status", StringComparison.OrdinalIgnoreCase) == true)
         {
             var state = await new StateStore(paths).LoadAsync(CancellationToken.None);
-            Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion, ProxyManagementEnabled = state.Proxy?.CurrentState == "configured", Proxy = state.Proxy }, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.PairingCode, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion, ProxyManagementEnabled = state.Proxy?.CurrentState == "configured", Proxy = state.Proxy }, new JsonSerializerOptions { WriteIndented = true }));
             return 0;
         }
         if (args.FirstOrDefault()?.Equals("restore-proxy", StringComparison.OrdinalIgnoreCase) == true)
@@ -62,10 +62,22 @@ public static class Program
         var server = serverIndex >= 0 && serverIndex + 1 < args.Length ? args[serverIndex + 1] : null;
         var allowHttp = args.Contains("--allow-http");
         var token = args.Contains("--enrollment-token-stdin") ? await Console.In.ReadLineAsync() : null;
-        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || (uri.Scheme == "http" && !allowHttp) || string.IsNullOrWhiteSpace(token)) { Console.Error.WriteLine("configure requires --server HTTPS_URL --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
+        var portalApproval = args.Contains("--portal-approval");
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || (uri.Scheme == "http" && !allowHttp) || (!portalApproval && string.IsNullOrWhiteSpace(token))) { Console.Error.WriteLine("configure requires --server HTTPS_URL and either --portal-approval or --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
         await File.WriteAllTextAsync(paths.ConfigurationPath, JsonSerializer.Serialize(new { Agent = new { ServerUrl = server, AllowHttp = allowHttp } }, new JsonSerializerOptions { WriteIndented = true }));
-        await new DpapiSecretStore(paths).SaveBootstrapTokenAsync(token, CancellationToken.None);
-        Console.WriteLine("Configuration saved; enrollment token is DPAPI-protected.");
+        var secretStore = new DpapiSecretStore(paths);
+        if (!string.IsNullOrWhiteSpace(token)) await secretStore.SaveBootstrapTokenAsync(token, CancellationToken.None);
+        if (portalApproval)
+        {
+            var stateStore = new StateStore(paths);
+            var state = await stateStore.LoadAsync(CancellationToken.None);
+            if (state.DeviceId is null && state.Enrollment == "PairingRejected")
+            {
+                await secretStore.DeletePairingSecretAsync(CancellationToken.None);
+                await stateStore.SaveAsync(state with { PairingRequestId = null, PairingCode = null, Enrollment = "NotEnrolled" }, CancellationToken.None);
+            }
+        }
+        Console.WriteLine(portalApproval ? "Configuration saved; portal approval pairing will start with the service." : "Configuration saved; enrollment token is DPAPI-protected.");
         return 0;
     }
 }
