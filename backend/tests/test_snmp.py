@@ -95,6 +95,8 @@ async def test_snmp_device_create_test_list_and_delete(snmp_client,monkeypatch):
         assert decrypt_snmp_secret(stored.privacy_secret_encrypted)==payload()["privacy_password"]
     history=await snmp_client.get(f"/api/v1/graphs/snmp/{device_id}?hours=1")
     assert history.status_code==200 and history.json()["latest"]["interfaces"][0]["name"]=="WAN"
+    assessment=await snmp_client.post("/api/v1/security/assess-snmp",json={"snmp_device_ids":[device_id]})
+    assert assessment.status_code==200 and assessment.json()["mode"]=="non-invasive"
     removed=await snmp_client.delete(f"/api/v1/snmp/devices/{device_id}")
     assert removed.status_code==204
     async with SessionLocal() as db:
