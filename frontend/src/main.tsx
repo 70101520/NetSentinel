@@ -6,7 +6,7 @@ import './auth.css';
 import './devices.css';
 import './inventory.css';
 
-const sections=['Dashboard','Devices','Network Devices','Live Traffic','Web Logs','Bandwidth','Policies','Web Filtering','Categories','Users','Groups','VLAN Policies','Firewall','Agents','Alerts','Reports','Audit Logs','System Settings'];
+const sections=['Dashboard','Network Devices'];
 type DashboardData={devices:{total:number;online:number;offline:number;historical:number};components:{api:string}};
 type Device={id:string;hostname:string;ip_address?:string;username?:string;os_name?:string;os_version?:string;agent_version?:string;status:string;last_heartbeat?:string;group_name?:string;department?:string;enrollment_state?:string;active_ips?:string[];mac_addresses?:string[];uptime_seconds?:number};
 type DevicePage={items:Device[];meta:{page:number;pages:number;total:number}};
