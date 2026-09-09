@@ -44,3 +44,8 @@ jobs:
       - run: dotnet build NetSentinel.Agent.sln -c Release --no-restore
       - run: dotnet test NetSentinel.Agent.sln -c Release --no-build
       - run: dotnet publish NetSentinel.Agent/NetSentinel.Agent.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetSentinel-Agent-win-x64
+          path: agent/windows/NetSentinel.Agent/bin/Release/net8.0-windows/win-x64/publish/
+          if-no-files-found: error

@@ -6,7 +6,7 @@ This directory contains enrollment, machine-bound identity/credential persistenc
 
 The agent is a self-contained .NET 8 Windows Worker Service (`win-x64`) hosted by the Windows Service Control Manager as `NetSentinelAgent`. SCM configures automatic startup and bounded recovery restarts. The Generic Host passes SCM stop/shutdown into a cancellation token, and all waits are cancellable. The current service runs as `NT AUTHORITY\LocalService`; this foundation requires outbound HTTP(S), read-only machine/network/session metadata, and write access only to its protected ProgramData directory. It does not request LocalSystem, administrator, debug, driver, firewall, or impersonation privileges.
 
-Versioning follows SemVer. This foundation reports `0.1.0`. A self-contained, versioned publish directory leaves a future signed installer/update boundary, but remote update is intentionally absent.
+Versioning follows SemVer. This release reports `0.3.0`. A self-contained, versioned publish directory leaves a future signed installer/update boundary; remote update is intentionally absent.
 
 ## Local security model
 
@@ -23,6 +23,8 @@ Get-Service NetSentinelAgent
 & "$env:ProgramFiles\NetSentinel\Agent\NetSentinel.Agent.exe" status
 ```
 
+Upgrade an existing enrolled service with `./update-agent.ps1 -SourceDirectory ./publish` from elevated PowerShell. The update preserves ProgramData identity and DPAPI credentials, never requires a new enrollment token, and restores the previous binaries if the service cannot restart.
+
 For a controlled HTTP-only LAN test, installation additionally requires `-AllowHttp`; certificate validation is never disabled. Configure the Windows machine to trust the organizational/public CA for production HTTPS.
 
 Logs roll daily or at 10 MiB and retain at most 14 files. Status contains only enrollment state, device ID, reachability, timestamps, failure count, and version.
@@ -33,7 +35,7 @@ Uninstall with `.\uninstall-agent.ps1`; identity is retained. Use `-RemoveIdenti
 
 The server heartbeat interval is honored subject to the local minimum. Transient HTTP, timeout, DNS, and network failures use 5, 15, 30, then 60-second bounded backoff. Every delay receives ±15% jitter. Success returns to the normal interval. HTTP 401/403 marks `CredentialInvalid`, stops retries, and requires administrator recovery; revocation is never bypassed.
 
-Heartbeat contains only approved bounded foundation data. Interactive username is read through Windows Terminal Services without impersonation or access to user content.
+Heartbeat contains only approved bounded foundation data, including current CPU, memory, fixed-disk and aggregate active-interface throughput measurements. Interactive username is read through Windows Terminal Services without impersonation or access to user content.
 
 ## Tests and validation
 

@@ -21,6 +21,7 @@ from app.telemetry import router as telemetry_router
 from app.metrics import router as metrics_router
 from app.agents import router as agents_router
 from app.discovery import discovery_scheduler,router as discovery_router
+from app.security_assessment import router as security_assessment_router
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
@@ -32,6 +33,7 @@ app=FastAPI(title="NetSentinel Management API",version="0.2.0",lifespan=lifespan
 app.state.redis=redis
 app.include_router(telemetry_router); app.include_router(metrics_router); app.include_router(agents_router)
 app.include_router(discovery_router)
+app.include_router(security_assessment_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
 @app.exception_handler(OperationalError)
 @app.exception_handler(InterfaceError)
