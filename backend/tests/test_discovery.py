@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from app.discovery import probe,validated_network
-from app.discovery import agent_ip_map,observed_host_status
+from app.discovery import agent_ip_map,observed_agent_status
 
 def test_discovery_accepts_only_bounded_rfc1918_networks():
     assert str(validated_network("192.168.32.0/24"))=="192.168.32.0/24"
@@ -28,11 +28,13 @@ def test_agent_matching_includes_reported_active_ips():
     device=SimpleNamespace(id="device-1",ip_address="fe80::1",metadata_={"active_ips":["fe80::1","192.168.32.100"]})
     assert agent_ip_map([device])["192.168.32.100"]=="device-1"
 
-def test_agent_heartbeat_is_authoritative_for_matched_discovery_host():
-    now=datetime.now(timezone.utc);host=SimpleNamespace(state="ONLINE")
+def test_agent_health_is_reported_separately_from_node_discovery():
+    now=datetime.now(timezone.utc)
     online=SimpleNamespace(current_status="ONLINE",last_heartbeat=now)
     stopped=SimpleNamespace(current_status="OFFLINE",last_heartbeat=now)
     stale=SimpleNamespace(current_status="ONLINE",last_heartbeat=now-timedelta(minutes=2))
-    assert observed_host_status(host,online,now-timedelta(seconds=45))=="online"
-    assert observed_host_status(host,stopped,now-timedelta(seconds=45))=="offline"
-    assert observed_host_status(host,stale,now-timedelta(seconds=45))=="offline"
+    cutoff=now-timedelta(seconds=45)
+    assert observed_agent_status(online,cutoff)=="online"
+    assert observed_agent_status(stopped,cutoff)=="offline"
+    assert observed_agent_status(stale,cutoff)=="offline"
+    assert observed_agent_status(None,cutoff)=="not-installed"
