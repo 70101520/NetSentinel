@@ -44,15 +44,19 @@ def primary_network(interface_cidr:str)->str:
 async def ensure_primary_discovery_network(interface_cidr:str):
     cidr=primary_network(interface_cidr)
     async with SessionLocal() as db:
-        item=await db.scalar(select(DiscoveryNetwork).where(DiscoveryNetwork.name=="Primary server network"))
+        item=await db.scalar(select(DiscoveryNetwork).where(DiscoveryNetwork.cidr==cidr))
         if item:
-            changed=item.cidr!=cidr;item.cidr=cidr;item.enabled=True
+            changed=not item.enabled;item.enabled=True
         else:
-            changed=True;item=DiscoveryNetwork(name="Primary server network",cidr=cidr,vlan="Primary LAN",enabled=True,interval_seconds=900,probe_ports=[22,80,443,445,3128,3389,8080]);db.add(item)
+            item=await db.scalar(select(DiscoveryNetwork).where(DiscoveryNetwork.name=="Primary server network"))
+            if item:
+                changed=item.cidr!=cidr or not item.enabled;item.cidr=cidr;item.enabled=True
+            else:
+                changed=True;item=DiscoveryNetwork(name="Primary server network",cidr=cidr,vlan="Primary LAN",enabled=True,interval_seconds=900,probe_ports=[22,80,443,445,3128,3389,8080]);db.add(item)
         if changed:
             await db.flush();db.add(AuditEvent(actor_id=None,action="discovery.primary_network.configure",resource_type="discovery_network",resource_id=str(item.id),source_ip=None,previous_value=None,new_value={"cidr":cidr},result="success",request_id=f"cli-{uuid.uuid4()}"))
         await db.commit()
-    print(f"Primary discovery network configured: {cidr}")
+    print(f"Primary discovery network configured: {cidr} ({item.name})")
 
 def synthetic_signature(device:Device)->bool:
     lifecycle={"ALPHA":"filter-000","BRAVO":"filter-001","CHARLIE":"filter-002"}
