@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime,timezone
 from fastapi import APIRouter,Depends,HTTPException,Request,status
-from pysnmp.hlapi.v3arch.asyncio import ContextData,ObjectIdentity,ObjectType,SnmpEngine,USM_AUTH_HMAC192_SHA256,USM_PRIV_CFB128_AES,UdpTransportTarget,UsmUserData,get_cmd
+from pysnmp.hlapi.v3arch.asyncio import ContextData,ObjectIdentity,ObjectType,SnmpEngine,USM_AUTH_HMAC192_SHA256,USM_AUTH_HMAC96_SHA,USM_PRIV_CFB128_AES,UdpTransportTarget,UsmUserData,get_cmd
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from app.security import require
 from app.snmp_secrets import decrypt_snmp_secret,encrypt_snmp_secret
 
 router=APIRouter(prefix="/api/v1/snmp",tags=["snmp"])
+AUTH_PROTOCOLS={"SHA-256":USM_AUTH_HMAC192_SHA256,"SHA-1":USM_AUTH_HMAC96_SHA}
 
 def _safe_error(indication,error_status)->str:
     text=f"{indication or ''} {error_status or ''}".lower()
@@ -24,7 +25,7 @@ async def probe_v3(target:SnmpDevice,auth_password:str,privacy_password:str)->tu
     engine=SnmpEngine()
     try:
         transport=await UdpTransportTarget.create((str(target.ip_address),target.port),timeout=2,retries=0)
-        indication,error_status,_,bindings=await get_cmd(engine,UsmUserData(target.username,authKey=auth_password,privKey=privacy_password,authProtocol=USM_AUTH_HMAC192_SHA256,privProtocol=USM_PRIV_CFB128_AES),transport,ContextData(),ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),ObjectType(ObjectIdentity("1.3.6.1.2.1.1.5.0")),lookupMib=False)
+        indication,error_status,_,bindings=await get_cmd(engine,UsmUserData(target.username,authKey=auth_password,privKey=privacy_password,authProtocol=AUTH_PROTOCOLS[target.auth_protocol],privProtocol=USM_PRIV_CFB128_AES),transport,ContextData(),ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),ObjectType(ObjectIdentity("1.3.6.1.2.1.1.5.0")),lookupMib=False)
         if indication or error_status:raise ConnectionError(_safe_error(indication,error_status))
         values=[binding[1].prettyPrint() for binding in bindings]
         return values[0][:1000],values[1][:255]
@@ -45,14 +46,14 @@ async def list_devices(db:AsyncSession=Depends(get_db),_:User=Depends(require("d
 @router.post("/devices",response_model=SnmpDeviceOut,status_code=status.HTTP_201_CREATED)
 async def add_device(body:SnmpDeviceInput,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
     try:
-        item=SnmpDevice(name=body.name.strip(),ip_address=str(body.ip_address),port=body.port,version="3",username=body.username.strip(),auth_protocol="SHA-256",privacy_protocol="AES-128",auth_secret_encrypted=encrypt_snmp_secret(body.auth_password),privacy_secret_encrypted=encrypt_snmp_secret(body.privacy_password),poll_interval_seconds=body.poll_interval_seconds,created_by=user.id)
+        item=SnmpDevice(name=body.name.strip(),vendor=body.vendor,ip_address=str(body.ip_address),port=body.port,version="3",username=body.username.strip(),auth_protocol=body.auth_protocol,privacy_protocol="AES-128",auth_secret_encrypted=encrypt_snmp_secret(body.auth_password),privacy_secret_encrypted=encrypt_snmp_secret(body.privacy_password),poll_interval_seconds=body.poll_interval_seconds,created_by=user.id)
     except RuntimeError as exc:raise HTTPException(503,str(exc)) from exc
     db.add(item)
     try:await db.flush()
     except IntegrityError as exc:
         await db.rollback();raise HTTPException(409,"SNMP device name or target already exists") from exc
     await _test(item,body.auth_password,body.privacy_password)
-    await record(db,request,user,"snmp.device.create","snmp_device",str(item.id),"success",new={"name":item.name,"ip_address":str(item.ip_address),"port":item.port,"version":"3","security_level":"authPriv"})
+    await record(db,request,user,"snmp.device.create","snmp_device",str(item.id),"success",new={"name":item.name,"vendor":item.vendor,"ip_address":str(item.ip_address),"port":item.port,"version":"3","security_level":"authPriv","auth_protocol":item.auth_protocol,"privacy_protocol":item.privacy_protocol})
     await db.commit();await db.refresh(item);return item
 
 @router.post("/devices/{device_id}/test",response_model=SnmpDeviceOut)

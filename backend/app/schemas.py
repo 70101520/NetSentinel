@@ -13,7 +13,7 @@ class DeviceOut(BaseModel):
     id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; active_ips:list[str]=Field(default_factory=list); os_name:str|None; os_version:str|None=None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None; enrollment_state:str|None=None; system_metrics:SystemMetrics|None=None
 class DevicePage(BaseModel): items:list[DeviceOut]; meta:PageMeta
 class SnmpDeviceInput(BaseModel):
-    name:str=Field(min_length=1,max_length=100);ip_address:IPvAnyAddress;port:int=Field(default=161,ge=1,le=65535);version:str="3";username:str=Field(min_length=1,max_length=64);auth_password:str=Field(min_length=8,max_length=255);privacy_password:str=Field(min_length=8,max_length=255);poll_interval_seconds:int=Field(default=60,ge=30,le=86400)
+    name:str=Field(min_length=1,max_length=100);vendor:str="generic";ip_address:IPvAnyAddress;port:int=Field(default=161,ge=1,le=65535);version:str="3";username:str=Field(min_length=1,max_length=64);auth_protocol:str="SHA-256";privacy_protocol:str="AES-128";auth_password:str=Field(min_length=8,max_length=255);privacy_password:str=Field(min_length=8,max_length=255);poll_interval_seconds:int=Field(default=60,ge=30,le=86400)
     @field_validator("ip_address")
     @classmethod
     def private_ipv4_only(cls,value):
@@ -26,9 +26,24 @@ class SnmpDeviceInput(BaseModel):
     def snmp_v3_only(cls,value):
         if value!="3":raise ValueError("only SNMPv3 authPriv is supported")
         return value
+    @field_validator("vendor")
+    @classmethod
+    def supported_vendor(cls,value):
+        if value not in {"pfsense","fortigate","cisco","juniper","aruba","sonicwall","generic"}:raise ValueError("unsupported SNMP vendor template")
+        return value
+    @field_validator("auth_protocol")
+    @classmethod
+    def supported_auth_protocol(cls,value):
+        if value not in {"SHA-256","SHA-1"}:raise ValueError("authentication protocol must be SHA-256 or SHA-1")
+        return value
+    @field_validator("privacy_protocol")
+    @classmethod
+    def aes_privacy_only(cls,value):
+        if value!="AES-128":raise ValueError("only AES-128 privacy is supported")
+        return value
 class SnmpDeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
-    id:uuid.UUID;name:str;ip_address:IPvAnyAddress;port:int;version:str;username:str;auth_protocol:str;privacy_protocol:str;enabled:bool;poll_interval_seconds:int;status:str;system_name:str|None;system_description:str|None;last_polled_at:datetime|None;last_success_at:datetime|None;last_error:str|None;created_at:datetime
+    id:uuid.UUID;name:str;vendor:str;ip_address:IPvAnyAddress;port:int;version:str;username:str;auth_protocol:str;privacy_protocol:str;enabled:bool;poll_interval_seconds:int;status:str;system_name:str|None;system_description:str|None;last_polled_at:datetime|None;last_success_at:datetime|None;last_error:str|None;created_at:datetime
 class DiscoveryNetworkInput(BaseModel):
     name:str=Field(min_length=1,max_length=100);cidr:str;vlan:str|None=Field(None,max_length=100);enabled:bool=True;interval_seconds:int=Field(default=900,ge=60,le=86400);probe_ports:list[int]=Field(default=[80,443,445,3389],min_length=1,max_length=16)
     @field_validator("probe_ports")

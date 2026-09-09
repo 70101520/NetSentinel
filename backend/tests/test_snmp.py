@@ -54,6 +54,14 @@ def payload():return {"name":"Core switch","ip_address":"192.168.32.254","port":
 def test_snmp_input_rejects_public_ip_and_legacy_version():
     with pytest.raises(ValueError):SnmpDeviceInput(**{**payload(),"ip_address":"8.8.8.8"})
     with pytest.raises(ValueError):SnmpDeviceInput(**{**payload(),"version":"2c"})
+    with pytest.raises(ValueError):SnmpDeviceInput(**{**payload(),"vendor":"unknown"})
+    with pytest.raises(ValueError):SnmpDeviceInput(**{**payload(),"auth_protocol":"MD5"})
+
+def test_snmp_vendor_protocol_compatibility_is_bounded():
+    legacy=SnmpDeviceInput(**{**payload(),"vendor":"sonicwall","auth_protocol":"SHA-1"})
+    assert legacy.vendor=="sonicwall" and legacy.auth_protocol=="SHA-1"
+    modern=SnmpDeviceInput(**{**payload(),"vendor":"juniper","auth_protocol":"SHA-256"})
+    assert modern.auth_protocol=="SHA-256" and modern.privacy_protocol=="AES-128"
 
 def test_snmp_secret_encryption_round_trip():
     encrypted=encrypt_snmp_secret("do-not-store-plaintext")
@@ -67,6 +75,7 @@ async def test_snmp_device_create_test_list_and_delete(snmp_client,monkeypatch):
     assert created.status_code==201
     body=created.json();device_id=body["id"]
     assert body["status"]=="ONLINE" and body["system_name"]=="core-router"
+    assert body["vendor"]=="generic" and body["auth_protocol"]=="SHA-256"
     assert "auth_password" not in body and "privacy_password" not in body
     async with SessionLocal() as db:
         stored=await db.get(SnmpDevice,uuid.UUID(device_id))

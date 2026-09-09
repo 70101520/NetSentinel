@@ -1,6 +1,8 @@
 # SNMP-managed device foundation
 
-The Agents page can register explicitly approved RFC1918 IPv4 network appliances for agentless SNMP monitoring. This foundation supports SNMPv3 `authPriv` only, with HMAC-SHA-256 authentication and AES-128 privacy. SNMPv1 and plaintext SNMPv2c communities are intentionally rejected.
+The Agents page can register explicitly approved RFC1918 IPv4 network appliances for agentless SNMP monitoring. This foundation supports SNMPv3 `authPriv` only, with AES-128 privacy and either HMAC-SHA-256 (recommended) or HMAC-SHA-1 (legacy compatibility). MD5, DES, SNMPv1, and plaintext SNMPv2c communities are intentionally rejected.
+
+The add-device dialog provides templates for pfSense NET-SNMP, FortiGate, Cisco, Juniper, HPE/Aruba, SonicWall, and custom appliances. Templates select a compatible starting authentication protocol; administrators must verify support against the exact device model and firmware. Device-side access should be read-only and restricted to the NetSentinel server address. The pfSense built-in community-string daemon is not compatible; use its NET-SNMP package for SNMPv3.
 
 An administrator supplies the target name, IPv4 address, UDP port, SNMPv3 username, authentication passphrase, privacy passphrase, and planned polling interval. Creation immediately performs bounded read-only GET requests for `sysDescr.0` and `sysName.0`. Manual **Test** repeats that operation. No SET request, walk, discovery, or public-address target is allowed.
 
