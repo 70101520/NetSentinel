@@ -13,3 +13,5 @@ def test_bounded_heartbeat_payload():
     assert str(value.active_ips[0])=="192.0.2.1"
 def test_negative_uptime_rejected():
     with pytest.raises(ValidationError): Heartbeat(device_id=uuid.uuid4(),timestamp=datetime.now(timezone.utc),hostname="PC",agent_version="1",os_name="Windows",uptime_seconds=-1)
+def test_system_metrics_are_bounded():
+    with pytest.raises(ValidationError): Heartbeat(device_id=uuid.uuid4(),timestamp=datetime.now(timezone.utc),hostname="PC",agent_version="1",os_name="Windows",uptime_seconds=1,system_metrics={"cpu_percent":101,"sampled_at":datetime.now(timezone.utc)})

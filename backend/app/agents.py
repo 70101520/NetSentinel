@@ -146,7 +146,9 @@ async def heartbeat(request: Request, body: Heartbeat, db: AsyncSession = Depend
     device.boot_time, device.uptime_seconds = body.boot_time, body.uptime_seconds
     device.last_seen = device.last_heartbeat = now
     device.current_status = "ONLINE"
-    device.metadata_ = {"active_ips": [str(v) for v in body.active_ips], "mac_addresses": body.mac_addresses, "gateway": str(body.gateway) if body.gateway else None, "dns": [str(v) for v in body.dns]}
+    metadata={**(device.metadata_ or {}),"active_ips":[str(v) for v in body.active_ips],"mac_addresses":body.mac_addresses,"gateway":str(body.gateway) if body.gateway else None,"dns":[str(v) for v in body.dns]}
+    if body.system_metrics:metadata["system_metrics"]=body.system_metrics.model_dump(mode="json")
+    device.metadata_=metadata
     if body.proxy_status:
         proxy=await db.get(DeviceProxyConfiguration,device.id)
         if proxy:

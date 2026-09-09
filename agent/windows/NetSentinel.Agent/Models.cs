@@ -56,6 +56,15 @@ public sealed record EnrollResponse(
 
 public sealed record ServerPolicy([property: JsonPropertyName("heartbeat_interval_seconds")] int HeartbeatIntervalSeconds);
 
+public sealed record SystemMetrics(
+    [property: JsonPropertyName("cpu_percent")] double? CpuPercent,
+    [property: JsonPropertyName("memory_percent")] double? MemoryPercent,
+    [property: JsonPropertyName("disk_percent")] double? DiskPercent,
+    [property: JsonPropertyName("network_receive_bps")] double? NetworkReceiveBps,
+    [property: JsonPropertyName("network_send_bps")] double? NetworkSendBps,
+    [property: JsonPropertyName("network_utilization_percent")] double? NetworkUtilizationPercent,
+    [property: JsonPropertyName("sampled_at")] DateTimeOffset SampledAt);
+
 public sealed record HeartbeatRequest(
     [property: JsonPropertyName("device_id")] Guid DeviceId,
     [property: JsonPropertyName("timestamp")] DateTimeOffset Timestamp,
@@ -70,6 +79,7 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("dns")] string[] Dns,
     [property: JsonPropertyName("boot_time")] DateTimeOffset BootTime,
     [property: JsonPropertyName("uptime_seconds")] long UptimeSeconds,
-    [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null);
+    [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
+    [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.2.0"; }
+public static class AgentVersion { public const string Current = "0.3.0"; }

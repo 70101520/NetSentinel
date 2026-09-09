@@ -6,9 +6,11 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator
 class Token(BaseModel): access_token:str; token_type:str="bearer"; expires_in:int
 class PageMeta(BaseModel): page:int; page_size:int; total:int; pages:int
+class SystemMetrics(BaseModel):
+    cpu_percent:float|None=Field(None,ge=0,le=100);memory_percent:float|None=Field(None,ge=0,le=100);disk_percent:float|None=Field(None,ge=0,le=100);network_receive_bps:float|None=Field(None,ge=0);network_send_bps:float|None=Field(None,ge=0);network_utilization_percent:float|None=Field(None,ge=0,le=100);sampled_at:datetime
 class DeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
-    id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; os_name:str|None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None
+    id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; active_ips:list[str]=Field(default_factory=list); os_name:str|None; os_version:str|None=None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None; enrollment_state:str|None=None; system_metrics:SystemMetrics|None=None
 class DevicePage(BaseModel): items:list[DeviceOut]; meta:PageMeta
 class DiscoveryNetworkInput(BaseModel):
     name:str=Field(min_length=1,max_length=100);cidr:str;vlan:str|None=Field(None,max_length=100);enabled:bool=True;interval_seconds:int=Field(default=900,ge=60,le=86400);probe_ports:list[int]=Field(default=[80,443,445,3389],min_length=1,max_length=16)
@@ -76,7 +78,7 @@ class TelemetryAccepted(BaseModel): accepted:int; rejected:int=0; status:str="qu
 class EnrollRequest(BaseModel):
     enrollment_token:str=Field(min_length=20,max_length=200); installation_id:str=Field(min_length=8,max_length=200); hostname:str=Field(min_length=1,max_length=255); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); architecture:str|None=Field(None,max_length=30); initial_ip:IPvAnyAddress|None=None; mac_address:str|None=Field(None,max_length=17); agent_version:str=Field(max_length=50)
 class Heartbeat(BaseModel):
-    device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0); proxy_status:ProxyStatus|None=None
+    device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0); proxy_status:ProxyStatus|None=None;system_metrics:SystemMetrics|None=None
 class DeviceAssignment(BaseModel):
     group_name:str|None=Field(None,max_length=100)
     department:str|None=Field(None,max_length=100)
