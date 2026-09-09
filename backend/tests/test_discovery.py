@@ -1,7 +1,9 @@
 import asyncio
+from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from app.discovery import probe,validated_network
+from app.discovery import agent_ip_map
 
 def test_discovery_accepts_only_bounded_rfc1918_networks():
     assert str(validated_network("192.168.32.0/24"))=="192.168.32.0/24"
@@ -20,3 +22,7 @@ async def test_timeout_does_not_invent_a_host(monkeypatch):
     async def timeout(*_args,**_kwargs):raise asyncio.TimeoutError()
     monkeypatch.setattr(asyncio,"open_connection",timeout)
     assert await probe("192.168.32.11",[445],asyncio.Semaphore(1)) is None
+
+def test_agent_matching_includes_reported_active_ips():
+    device=SimpleNamespace(id="device-1",ip_address="fe80::1",metadata_={"active_ips":["fe80::1","192.168.32.100"]})
+    assert agent_ip_map([device])["192.168.32.100"]=="device-1"
