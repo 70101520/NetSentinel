@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     access_token_minutes: int = Field(default=15, ge=5, le=60)
     agent_heartbeat_timeout_seconds: int = Field(default=20, ge=15)
     agent_heartbeat_interval_seconds: int = Field(default=5, ge=5, le=3600)
+    snmp_credential_key: str | None = None
     agent_max_body_bytes: int = Field(default=65_536, ge=4096, le=1_048_576)
     agent_enrollment_rate_limit: int = Field(default=20, ge=1, le=1000)
     agent_enrollment_rate_window_seconds: int = Field(default=60, ge=1, le=3600)

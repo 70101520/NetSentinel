@@ -1,0 +1,9 @@
+"""SNMPv3 managed device registration."""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+revision="0008_snmp_devices";down_revision="0007_agent_pairing";branch_labels=None;depends_on=None
+def upgrade():
+    op.create_table("snmp_devices",sa.Column("id",postgresql.UUID(as_uuid=True),primary_key=True),sa.Column("name",sa.String(100),nullable=False,unique=True),sa.Column("ip_address",postgresql.INET(),nullable=False),sa.Column("port",sa.Integer(),nullable=False,server_default="161"),sa.Column("version",sa.String(10),nullable=False,server_default="3"),sa.Column("username",sa.String(64),nullable=False),sa.Column("auth_protocol",sa.String(20),nullable=False,server_default="SHA-256"),sa.Column("privacy_protocol",sa.String(20),nullable=False,server_default="AES-128"),sa.Column("auth_secret_encrypted",sa.Text(),nullable=False),sa.Column("privacy_secret_encrypted",sa.Text(),nullable=False),sa.Column("enabled",sa.Boolean(),nullable=False,server_default=sa.true()),sa.Column("poll_interval_seconds",sa.Integer(),nullable=False,server_default="60"),sa.Column("status",sa.String(20),nullable=False,server_default="UNKNOWN"),sa.Column("system_name",sa.String(255)),sa.Column("system_description",sa.String(1000)),sa.Column("last_polled_at",sa.DateTime(timezone=True)),sa.Column("last_success_at",sa.DateTime(timezone=True)),sa.Column("last_error",sa.String(300)),sa.Column("created_by",postgresql.UUID(as_uuid=True),sa.ForeignKey("users.id")),sa.Column("created_at",sa.DateTime(timezone=True),nullable=False,server_default=sa.func.now()),sa.Column("updated_at",sa.DateTime(timezone=True),nullable=False,server_default=sa.func.now()),sa.UniqueConstraint("ip_address","port",name="uq_snmp_device_target"))
+    op.create_index("ix_snmp_devices_status_poll","snmp_devices",["enabled","status","last_polled_at"])
+def downgrade():op.drop_table("snmp_devices")
