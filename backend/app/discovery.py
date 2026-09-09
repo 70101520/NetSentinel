@@ -38,6 +38,9 @@ def agent_ip_map(devices):
         observed=[] if device.ip_address is None else [str(device.ip_address)];observed.extend(str(value) for value in (device.metadata_ or {}).get("active_ips",[]))
         for address in observed:result.setdefault(address,device.id)
     return result
+def observed_host_status(host,device,cutoff):
+    if not device:return host.state.lower()
+    return "online" if device.current_status=="ONLINE" and device.last_heartbeat and device.last_heartbeat>=cutoff else "offline"
 @router.get("/networks",response_model=list[DiscoveryNetworkOut])
 async def networks(db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):return list((await db.scalars(select(DiscoveryNetwork).order_by(DiscoveryNetwork.name))).all())
 @router.post("/networks",response_model=DiscoveryNetworkOut,status_code=201)
@@ -56,9 +59,10 @@ async def delete_network(network_id:uuid.UUID,request:Request,db:AsyncSession=De
     await db.delete(item);await db.commit();return {"status":"removed"}
 @router.get("/hosts")
 async def hosts(db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
-    rows=(await db.execute(select(DiscoveryHost,DiscoveryNetwork).join(DiscoveryNetwork).order_by(DiscoveryHost.ip_address))).all()
+    rows=(await db.execute(select(DiscoveryHost,DiscoveryNetwork,Device).join(DiscoveryNetwork).outerjoin(Device,DiscoveryHost.matched_device_id==Device.id).order_by(DiscoveryHost.ip_address))).all()
+    cutoff=datetime.now(timezone.utc)-timedelta(seconds=settings.agent_heartbeat_timeout_seconds)
     services={22:"SSH",80:"HTTP",443:"HTTPS",445:"SMB",3128:"HTTP Proxy",3306:"MySQL",3389:"RDP",5432:"PostgreSQL",8080:"HTTP Alternate"}
-    return [{"id":h.id,"network_id":h.network_id,"network":n.name,"cidr":n.cidr,"vlan":n.vlan,"ip_address":str(h.ip_address),"hostname":h.hostname,"status":h.state.lower(),"first_seen":h.first_seen,"last_seen":h.last_seen,"open_ports":h.open_ports,"services":[services.get(port,f"TCP {port}") for port in h.open_ports],"agent_installed":h.matched_device_id is not None,"device_id":h.matched_device_id} for h,n in rows]
+    return [{"id":h.id,"network_id":h.network_id,"network":n.name,"cidr":n.cidr,"vlan":n.vlan,"ip_address":str(h.ip_address),"hostname":d.hostname if d else h.hostname,"status":observed_host_status(h,d,cutoff),"first_seen":h.first_seen,"last_seen":d.last_heartbeat if d and d.last_heartbeat else h.last_seen,"open_ports":h.open_ports,"services":[services.get(port,f"TCP {port}") for port in h.open_ports],"agent_installed":d is not None,"device_id":h.matched_device_id} for h,n,d in rows]
 async def execute_scan(item:DiscoveryNetwork,db:AsyncSession):
     network=validated_network(item.cidr);addresses=[str(ip) for ip in network.hosts()];now=datetime.now(timezone.utc);item.last_started_at=now;item.last_status="RUNNING";await db.commit()
     semaphore=asyncio.Semaphore(settings.discovery_concurrency)

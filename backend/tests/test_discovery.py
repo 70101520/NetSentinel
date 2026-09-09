@@ -1,9 +1,10 @@
 import asyncio
+from datetime import datetime,timedelta,timezone
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from app.discovery import probe,validated_network
-from app.discovery import agent_ip_map
+from app.discovery import agent_ip_map,observed_host_status
 
 def test_discovery_accepts_only_bounded_rfc1918_networks():
     assert str(validated_network("192.168.32.0/24"))=="192.168.32.0/24"
@@ -26,3 +27,12 @@ async def test_timeout_does_not_invent_a_host(monkeypatch):
 def test_agent_matching_includes_reported_active_ips():
     device=SimpleNamespace(id="device-1",ip_address="fe80::1",metadata_={"active_ips":["fe80::1","192.168.32.100"]})
     assert agent_ip_map([device])["192.168.32.100"]=="device-1"
+
+def test_agent_heartbeat_is_authoritative_for_matched_discovery_host():
+    now=datetime.now(timezone.utc);host=SimpleNamespace(state="ONLINE")
+    online=SimpleNamespace(current_status="ONLINE",last_heartbeat=now)
+    stopped=SimpleNamespace(current_status="OFFLINE",last_heartbeat=now)
+    stale=SimpleNamespace(current_status="ONLINE",last_heartbeat=now-timedelta(minutes=2))
+    assert observed_host_status(host,online,now-timedelta(seconds=45))=="online"
+    assert observed_host_status(host,stopped,now-timedelta(seconds=45))=="offline"
+    assert observed_host_status(host,stale,now-timedelta(seconds=45))=="offline"
