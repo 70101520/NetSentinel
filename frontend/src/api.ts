@@ -23,5 +23,8 @@ export async function api<T>(path:string,init:RequestInit={}){
   const response=await fetch(path,{...init,headers:{...init.headers,Authorization:`Bearer ${token}`}});
   if(response.status===401){clearSession();throw new AuthenticationRequired('Your session has expired. Please sign in again.')}
   if(!response.ok){let message='The server could not complete this request.';try{const problem=await response.json();if(typeof problem.detail==='string')message=problem.detail}catch{}throw new ApiFailure(response.status,message)}
+  if(response.status===204)return undefined as T;
+  const contentType=response.headers.get('content-type')||'';
+  if(!contentType.includes('application/json'))return undefined as T;
   return response.json() as Promise<T>;
 }

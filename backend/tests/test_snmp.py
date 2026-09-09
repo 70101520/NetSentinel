@@ -85,6 +85,12 @@ async def test_snmp_device_create_test_list_and_delete(snmp_client,monkeypatch):
     assert listed.status_code==200 and listed.json()[0]["id"]==device_id
     tested=await snmp_client.post(f"/api/v1/snmp/devices/{device_id}/test")
     assert tested.status_code==200 and tested.json()["status"]=="ONLINE"
+    updated=await snmp_client.put(f"/api/v1/snmp/devices/{device_id}",json={**payload(),"name":"Edge firewall","poll_interval_seconds":120,"auth_password":None,"privacy_password":None})
+    assert updated.status_code==200 and updated.json()["name"]=="Edge firewall"
+    async with SessionLocal() as db:
+        stored=await db.get(SnmpDevice,uuid.UUID(device_id))
+        assert decrypt_snmp_secret(stored.auth_secret_encrypted)==payload()["auth_password"]
+        assert decrypt_snmp_secret(stored.privacy_secret_encrypted)==payload()["privacy_password"]
     removed=await snmp_client.delete(f"/api/v1/snmp/devices/{device_id}")
     assert removed.status_code==204
     async with SessionLocal() as db:

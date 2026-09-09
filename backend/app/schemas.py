@@ -41,6 +41,9 @@ class SnmpDeviceInput(BaseModel):
     def aes_privacy_only(cls,value):
         if value!="AES-128":raise ValueError("only AES-128 privacy is supported")
         return value
+class SnmpDeviceUpdate(SnmpDeviceInput):
+    auth_password:str|None=Field(default=None,min_length=8,max_length=255)
+    privacy_password:str|None=Field(default=None,min_length=8,max_length=255)
 class SnmpDeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:uuid.UUID;name:str;vendor:str;ip_address:IPvAnyAddress;port:int;version:str;username:str;auth_protocol:str;privacy_protocol:str;enabled:bool;poll_interval_seconds:int;status:str;system_name:str|None;system_description:str|None;last_polled_at:datetime|None;last_success_at:datetime|None;last_error:str|None;created_at:datetime

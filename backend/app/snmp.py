@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record
 from app.db import get_db
 from app.models import SnmpDevice,User
-from app.schemas import SnmpDeviceInput,SnmpDeviceOut
+from app.schemas import SnmpDeviceInput,SnmpDeviceOut,SnmpDeviceUpdate
 from app.security import require
 from app.snmp_secrets import decrypt_snmp_secret,encrypt_snmp_secret
 
@@ -63,6 +63,24 @@ async def test_device(device_id:uuid.UUID,request:Request,db:AsyncSession=Depend
     try:await _test(item,decrypt_snmp_secret(item.auth_secret_encrypted),decrypt_snmp_secret(item.privacy_secret_encrypted))
     except RuntimeError as exc:raise HTTPException(503,str(exc)) from exc
     await record(db,request,user,"snmp.device.test","snmp_device",str(item.id),"success" if item.status=="ONLINE" else "failed",new={"status":item.status})
+    await db.commit();await db.refresh(item);return item
+
+@router.put("/devices/{device_id}",response_model=SnmpDeviceOut)
+async def update_device(device_id:uuid.UUID,body:SnmpDeviceUpdate,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    item=await db.get(SnmpDevice,device_id)
+    if not item:raise HTTPException(404,"SNMP device not found")
+    previous={"name":item.name,"vendor":item.vendor,"ip_address":str(item.ip_address),"port":item.port,"username":item.username,"auth_protocol":item.auth_protocol,"poll_interval_seconds":item.poll_interval_seconds}
+    item.name=body.name.strip();item.vendor=body.vendor;item.ip_address=str(body.ip_address);item.port=body.port;item.username=body.username.strip();item.auth_protocol=body.auth_protocol;item.privacy_protocol="AES-128";item.poll_interval_seconds=body.poll_interval_seconds
+    try:
+        if body.auth_password:item.auth_secret_encrypted=encrypt_snmp_secret(body.auth_password)
+        if body.privacy_password:item.privacy_secret_encrypted=encrypt_snmp_secret(body.privacy_password)
+        await db.flush()
+    except RuntimeError as exc:raise HTTPException(503,str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback();raise HTTPException(409,"SNMP device name or target already exists") from exc
+    try:await _test(item,decrypt_snmp_secret(item.auth_secret_encrypted),decrypt_snmp_secret(item.privacy_secret_encrypted))
+    except RuntimeError as exc:raise HTTPException(503,str(exc)) from exc
+    await record(db,request,user,"snmp.device.update","snmp_device",str(item.id),"success",previous=previous,new={"name":item.name,"vendor":item.vendor,"ip_address":str(item.ip_address),"port":item.port,"username":item.username,"auth_protocol":item.auth_protocol,"poll_interval_seconds":item.poll_interval_seconds,"credentials_changed":bool(body.auth_password or body.privacy_password)})
     await db.commit();await db.refresh(item);return item
 
 @router.delete("/devices/{device_id}",status_code=status.HTTP_204_NO_CONTENT)
