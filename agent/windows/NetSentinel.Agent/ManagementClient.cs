@@ -7,6 +7,18 @@ public enum HeartbeatResult { Success, TransientFailure, CredentialRejected }
 
 public sealed class ManagementClient(HttpClient http)
 {
+    public async Task<PairingRegistration?> RequestPairingAsync(PairingRequest request,CancellationToken ct)
+    {
+        try{using var response=await http.PostAsJsonAsync("api/v1/agents/pairing-requests",request,ct);if(!response.IsSuccessStatusCode)return null;return await response.Content.ReadFromJsonAsync<PairingRegistration>(cancellationToken:ct);}
+        catch(HttpRequestException){return null;}catch(TaskCanceledException) when(!ct.IsCancellationRequested){return null;}
+    }
+
+    public async Task<PairingClaim?> ClaimPairingAsync(Guid requestId,string secret,CancellationToken ct)
+    {
+        using var message=new HttpRequestMessage(HttpMethod.Post,$"api/v1/agents/pairing-requests/{requestId}/claim"){Content=JsonContent.Create(new{pairing_secret=secret})};
+        try{using var response=await http.SendAsync(message,ct);if(response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Gone)throw new UnauthorizedAccessException("Agent pairing was rejected, expired, or invalid");if(!response.IsSuccessStatusCode)return null;return await response.Content.ReadFromJsonAsync<PairingClaim>(cancellationToken:ct);}
+        catch(HttpRequestException){return null;}catch(TaskCanceledException) when(!ct.IsCancellationRequested){return null;}
+    }
     public async Task<ProxyConfiguration?> GetConfigurationAsync(string credential, CancellationToken ct)
     {
         using var message = new HttpRequestMessage(HttpMethod.Get, "api/v1/agents/config");
@@ -41,5 +53,14 @@ public sealed class ManagementClient(HttpClient http)
         }
         catch (HttpRequestException) { return HeartbeatResult.TransientFailure; }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return HeartbeatResult.TransientFailure; }
+    }
+
+    public async Task<bool> ReportOfflineAsync(string credential, CancellationToken ct)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, "api/v1/agents/offline");
+        message.Headers.Add("X-Agent-Credential", credential);
+        try { using var response = await http.SendAsync(message, ct); return response.IsSuccessStatusCode; }
+        catch (HttpRequestException) { return false; }
+        catch (TaskCanceledException) { return false; }
     }
 }

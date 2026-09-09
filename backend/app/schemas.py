@@ -7,11 +7,28 @@ from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validato
 class Token(BaseModel): access_token:str; token_type:str="bearer"; expires_in:int
 class PageMeta(BaseModel): page:int; page_size:int; total:int; pages:int
 class SystemMetrics(BaseModel):
-    cpu_percent:float|None=Field(None,ge=0,le=100);memory_percent:float|None=Field(None,ge=0,le=100);disk_percent:float|None=Field(None,ge=0,le=100);network_receive_bps:float|None=Field(None,ge=0);network_send_bps:float|None=Field(None,ge=0);network_utilization_percent:float|None=Field(None,ge=0,le=100);sampled_at:datetime
+    cpu_percent:float|None=Field(None,ge=0,le=100);memory_percent:float|None=Field(None,ge=0,le=100);disk_percent:float|None=Field(None,ge=0,le=100);network_receive_bps:float|None=Field(None,ge=0);network_send_bps:float|None=Field(None,ge=0);network_utilization_percent:float|None=Field(None,ge=0,le=100);sampled_at:datetime;network_adapter:str|None=Field(None,max_length=255);sample_window_seconds:float|None=Field(None,ge=0,le=300)
 class DeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; active_ips:list[str]=Field(default_factory=list); os_name:str|None; os_version:str|None=None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None; enrollment_state:str|None=None; system_metrics:SystemMetrics|None=None
 class DevicePage(BaseModel): items:list[DeviceOut]; meta:PageMeta
+class SnmpDeviceInput(BaseModel):
+    name:str=Field(min_length=1,max_length=100);ip_address:IPvAnyAddress;port:int=Field(default=161,ge=1,le=65535);version:str="3";username:str=Field(min_length=1,max_length=64);auth_password:str=Field(min_length=8,max_length=255);privacy_password:str=Field(min_length=8,max_length=255);poll_interval_seconds:int=Field(default=60,ge=30,le=86400)
+    @field_validator("ip_address")
+    @classmethod
+    def private_ipv4_only(cls,value):
+        import ipaddress
+        address=ipaddress.ip_address(str(value));allowed=[ipaddress.ip_network("10.0.0.0/8"),ipaddress.ip_network("172.16.0.0/12"),ipaddress.ip_network("192.168.0.0/16")]
+        if address.version!=4 or not any(address in network for network in allowed):raise ValueError("must be an RFC1918 private IPv4 address")
+        return value
+    @field_validator("version")
+    @classmethod
+    def snmp_v3_only(cls,value):
+        if value!="3":raise ValueError("only SNMPv3 authPriv is supported")
+        return value
+class SnmpDeviceOut(BaseModel):
+    model_config=ConfigDict(from_attributes=True)
+    id:uuid.UUID;name:str;ip_address:IPvAnyAddress;port:int;version:str;username:str;auth_protocol:str;privacy_protocol:str;enabled:bool;poll_interval_seconds:int;status:str;system_name:str|None;system_description:str|None;last_polled_at:datetime|None;last_success_at:datetime|None;last_error:str|None;created_at:datetime
 class DiscoveryNetworkInput(BaseModel):
     name:str=Field(min_length=1,max_length=100);cidr:str;vlan:str|None=Field(None,max_length=100);enabled:bool=True;interval_seconds:int=Field(default=900,ge=60,le=86400);probe_ports:list[int]=Field(default=[80,443,445,3389],min_length=1,max_length=16)
     @field_validator("probe_ports")
@@ -77,6 +94,10 @@ class TelemetryBatch(BaseModel):
 class TelemetryAccepted(BaseModel): accepted:int; rejected:int=0; status:str="queued"
 class EnrollRequest(BaseModel):
     enrollment_token:str=Field(min_length=20,max_length=200); installation_id:str=Field(min_length=8,max_length=200); hostname:str=Field(min_length=1,max_length=255); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); architecture:str|None=Field(None,max_length=30); initial_ip:IPvAnyAddress|None=None; mac_address:str|None=Field(None,max_length=17); agent_version:str=Field(max_length=50)
+class PairingRequestInput(BaseModel):
+    pairing_secret:str=Field(min_length=32,max_length=200);installation_id:str=Field(min_length=8,max_length=200);hostname:str=Field(min_length=1,max_length=255);os_name:str=Field(max_length=100);os_version:str|None=Field(None,max_length=100);architecture:str|None=Field(None,max_length=30);agent_version:str=Field(max_length=50);initial_ip:IPvAnyAddress|None=None
+class PairingClaimInput(BaseModel):pairing_secret:str=Field(min_length=32,max_length=200)
+class PairingApprovalInput(BaseModel):group_name:str|None=Field(None,max_length=100);department:str|None=Field(None,max_length=100)
 class Heartbeat(BaseModel):
     device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0); proxy_status:ProxyStatus|None=None;system_metrics:SystemMetrics|None=None
 class DeviceAssignment(BaseModel):

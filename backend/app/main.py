@@ -22,6 +22,7 @@ from app.metrics import router as metrics_router
 from app.agents import router as agents_router
 from app.discovery import discovery_scheduler,router as discovery_router
 from app.security_assessment import router as security_assessment_router
+from app.snmp import router as snmp_router
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
@@ -34,6 +35,7 @@ app.state.redis=redis
 app.include_router(telemetry_router); app.include_router(metrics_router); app.include_router(agents_router)
 app.include_router(discovery_router)
 app.include_router(security_assessment_router)
+app.include_router(snmp_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
 @app.exception_handler(OperationalError)
 @app.exception_handler(InterfaceError)
@@ -82,11 +84,11 @@ async def devices(page:int=Query(1,ge=1),page_size:int=Query(50,ge=1),status_fil
     if group: filters.append(Device.group_name==group)
     if department: filters.append(Device.department==department)
     cutoff=datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds
-    if status_filter=="online": filters.append(Device.last_heartbeat>=datetime.fromtimestamp(cutoff,tz=timezone.utc))
-    if status_filter=="offline": filters.append((Device.last_heartbeat<datetime.fromtimestamp(cutoff,tz=timezone.utc)) | Device.last_heartbeat.is_(None))
+    if status_filter=="online": filters.extend([Device.current_status=="ONLINE",Device.last_heartbeat>=datetime.fromtimestamp(cutoff,tz=timezone.utc)])
+    if status_filter=="offline": filters.append((Device.current_status=="OFFLINE") | (Device.last_heartbeat<datetime.fromtimestamp(cutoff,tz=timezone.utc)) | Device.last_heartbeat.is_(None))
     query=query.where(*filters); total=await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows=(await db.scalars(query.order_by(Device.hostname,Device.id).offset((page-1)*page_size).limit(page_size))).all()
-    items=[{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":str(d.ip_address) if d.ip_address else None,"active_ips":(d.metadata_ or {}).get("active_ips",[]),"os_name":d.os_name,"os_version":d.os_version,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"revoked" if d.enrollment_state=="REVOKED" else "online" if d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline","uptime_seconds":d.uptime_seconds,"group_name":d.group_name,"department":d.department,"enrollment_state":d.enrollment_state,"system_metrics":(d.metadata_ or {}).get("system_metrics")} for d in rows]
+    items=[{"id":d.id,"device_identifier":d.device_identifier,"hostname":d.hostname,"username":d.username,"ip_address":str(d.ip_address) if d.ip_address else None,"active_ips":(d.metadata_ or {}).get("active_ips",[]),"os_name":d.os_name,"os_version":d.os_version,"agent_version":d.agent_version,"last_heartbeat":d.last_heartbeat,"status":"revoked" if d.enrollment_state=="REVOKED" else "online" if d.current_status=="ONLINE" and d.last_heartbeat and d.last_heartbeat.timestamp()>=cutoff else "offline","uptime_seconds":d.uptime_seconds,"group_name":d.group_name,"department":d.department,"enrollment_state":d.enrollment_state,"system_metrics":(d.metadata_ or {}).get("system_metrics")} for d in rows]
     return {"items":items,"meta":{"page":page,"page_size":page_size,"total":total,"pages":(total+page_size-1)//page_size}}
 @app.get("/api/v1/devices/{device_id}")
 async def device_details(device_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("devices.view"))):
@@ -94,7 +96,9 @@ async def device_details(device_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:U
     if not device: raise HTTPException(404,"Device not found")
     transitions=(await db.scalars(select(DeviceStateTransition).where(DeviceStateTransition.device_id==device.id).order_by(DeviceStateTransition.occurred_at.desc()).limit(20))).all()
     metadata=device.metadata_ or {}
-    return {"id":device.id,"agent_identity":device.agent_identity,"device_identifier":device.device_identifier,"hostname":device.hostname,"username":device.username,"ip_address":str(device.ip_address) if device.ip_address else None,"active_ips":metadata.get("active_ips",[]),"mac_addresses":metadata.get("mac_addresses",[str(device.mac_address)] if device.mac_address else []),"gateway":metadata.get("gateway"),"dns":metadata.get("dns",[]),"os_name":device.os_name,"os_version":device.os_version,"architecture":device.architecture,"agent_version":device.agent_version,"enrollment_state":device.enrollment_state,"status":device.current_status.lower(),"first_seen":device.first_seen,"last_seen":device.last_seen,"last_heartbeat":device.last_heartbeat,"boot_time":device.boot_time,"uptime_seconds":device.uptime_seconds,"group_name":device.group_name,"department":device.department,"system_metrics":metadata.get("system_metrics"),"recent_transitions":[{"occurred_at":t.occurred_at,"previous_status":t.previous_status,"new_status":t.new_status} for t in transitions]}
+    cutoff=datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds
+    status="revoked" if device.enrollment_state=="REVOKED" else "online" if device.current_status=="ONLINE" and device.last_heartbeat and device.last_heartbeat.timestamp()>=cutoff else "offline"
+    return {"id":device.id,"agent_identity":device.agent_identity,"device_identifier":device.device_identifier,"hostname":device.hostname,"username":device.username,"ip_address":str(device.ip_address) if device.ip_address else None,"active_ips":metadata.get("active_ips",[]),"mac_addresses":metadata.get("mac_addresses",[str(device.mac_address)] if device.mac_address else []),"gateway":metadata.get("gateway"),"dns":metadata.get("dns",[]),"os_name":device.os_name,"os_version":device.os_version,"architecture":device.architecture,"agent_version":device.agent_version,"enrollment_state":device.enrollment_state,"status":status,"first_seen":device.first_seen,"last_seen":device.last_seen,"last_heartbeat":device.last_heartbeat,"boot_time":device.boot_time,"uptime_seconds":device.uptime_seconds,"group_name":device.group_name,"department":device.department,"system_metrics":metadata.get("system_metrics"),"recent_transitions":[{"occurred_at":t.occurred_at,"previous_status":t.previous_status,"new_status":t.new_status} for t in transitions]}
 @app.post("/api/v1/policies/evaluate",response_model=Decision)
 async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Depends(require("policies.view"))):
     policy=await db.get(Policy,body.policy_id)
@@ -104,5 +108,5 @@ async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Dep
     return Decision(action=action,policy_id=policy.id,policy_version=policy.active_version,matched_rule_id=rule_id,reason=reason)
 @app.get("/api/v1/dashboard")
 async def dashboard(db:AsyncSession=Depends(get_db),_:User=Depends(require("dashboard.view"))):
-    total=await db.scalar(select(func.count()).select_from(Device)); cutoff=datetime.fromtimestamp(datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds,tz=timezone.utc); historical=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="REVOKED")); online=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="ENROLLED",Device.last_heartbeat>=cutoff))
+    total=await db.scalar(select(func.count()).select_from(Device)); cutoff=datetime.fromtimestamp(datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds,tz=timezone.utc); historical=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="REVOKED")); online=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="ENROLLED",Device.current_status=="ONLINE",Device.last_heartbeat>=cutoff))
     return {"devices":{"total":total,"online":online,"offline":total-online-historical,"historical":historical},"components":{"api":"ok"}}

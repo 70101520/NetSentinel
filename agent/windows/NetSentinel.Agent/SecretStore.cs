@@ -10,6 +10,9 @@ public interface ISecretStore
     Task SaveBootstrapTokenAsync(string value, CancellationToken cancellationToken);
     Task<string?> LoadBootstrapTokenAsync(CancellationToken cancellationToken);
     Task DeleteBootstrapTokenAsync(CancellationToken cancellationToken);
+    Task SavePairingSecretAsync(string value, CancellationToken cancellationToken);
+    Task<string?> LoadPairingSecretAsync(CancellationToken cancellationToken);
+    Task DeletePairingSecretAsync(CancellationToken cancellationToken);
     Task DeleteAllAsync(CancellationToken cancellationToken);
 }
 
@@ -23,10 +26,13 @@ public sealed class DpapiSecretStore(AgentPaths paths) : ISecretStore
 
     public Task<string?> LoadBootstrapTokenAsync(CancellationToken ct) => LoadAsync(paths.BootstrapTokenPath, ct);
     public Task DeleteBootstrapTokenAsync(CancellationToken ct) { if (File.Exists(paths.BootstrapTokenPath)) File.Delete(paths.BootstrapTokenPath); return Task.CompletedTask; }
+    public Task SavePairingSecretAsync(string value, CancellationToken ct) => SaveAsync(paths.PairingSecretPath, value, ct);
+    public Task<string?> LoadPairingSecretAsync(CancellationToken ct) => LoadAsync(paths.PairingSecretPath, ct);
+    public Task DeletePairingSecretAsync(CancellationToken ct) { if (File.Exists(paths.PairingSecretPath)) File.Delete(paths.PairingSecretPath); return Task.CompletedTask; }
 
     public Task DeleteAllAsync(CancellationToken ct)
     {
-        foreach (var path in new[] { paths.CredentialPath, paths.BootstrapTokenPath })
+        foreach (var path in new[] { paths.CredentialPath, paths.BootstrapTokenPath, paths.PairingSecretPath })
             if (File.Exists(path)) File.Delete(path);
         return Task.CompletedTask;
     }

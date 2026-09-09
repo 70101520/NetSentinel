@@ -16,6 +16,7 @@ public sealed class AgentPaths
     public string StatePath => Path.Combine(Root, "state.json");
     public string CredentialPath => Path.Combine(Root, "credential.dpapi");
     public string BootstrapTokenPath => Path.Combine(Root, "bootstrap.dpapi");
+    public string PairingSecretPath => Path.Combine(Root, "pairing.dpapi");
     public string ProxyBaselinePath => Path.Combine(Root, "proxy-baseline.json");
 }
 

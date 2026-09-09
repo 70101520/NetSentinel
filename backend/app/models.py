@@ -58,6 +58,14 @@ class Device(Base):
 class AgentEnrollment(Base):
     __tablename__="agent_enrollments"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); token_hash: Mapped[str]=mapped_column(String(64),unique=True); expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True)); used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id")); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); max_uses: Mapped[int]=mapped_column(Integer,default=1); use_count: Mapped[int]=mapped_column(Integer,default=0); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
+class AgentPairingRequest(Base):
+    __tablename__="agent_pairing_requests"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    installation_id: Mapped[str]=mapped_column(String(200),unique=True)
+    pairing_secret_hash: Mapped[str]=mapped_column(String(64))
+    pairing_code: Mapped[str]=mapped_column(String(12),unique=True)
+    hostname: Mapped[str]=mapped_column(String(255));os_name: Mapped[str]=mapped_column(String(100));os_version: Mapped[str|None]=mapped_column(String(100));architecture: Mapped[str|None]=mapped_column(String(30));agent_version: Mapped[str]=mapped_column(String(50));requested_ip: Mapped[str|None]=mapped_column(INET)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now());expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True));approved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));rejected_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));approved_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"));device_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("devices.id",ondelete="SET NULL"),unique=True);group_name: Mapped[str|None]=mapped_column(String(100));department: Mapped[str|None]=mapped_column(String(100))
 class DeviceStateTransition(Base):
     __tablename__="device_state_transitions"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE")); occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); previous_status: Mapped[str]=mapped_column(String(10)); new_status: Mapped[str]=mapped_column(String(10))
@@ -106,6 +114,30 @@ class DiscoveryHost(Base):
     last_seen: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
     open_ports: Mapped[list]=mapped_column(JSONB,default=list)
     matched_device_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("devices.id",ondelete="SET NULL"))
+class SnmpDevice(Base):
+    __tablename__="snmp_devices"
+    __table_args__=(UniqueConstraint("ip_address","port",name="uq_snmp_device_target"),)
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(100),unique=True)
+    ip_address: Mapped[str]=mapped_column(INET)
+    port: Mapped[int]=mapped_column(Integer,default=161)
+    version: Mapped[str]=mapped_column(String(10),default="3")
+    username: Mapped[str]=mapped_column(String(64))
+    auth_protocol: Mapped[str]=mapped_column(String(20),default="SHA-256")
+    privacy_protocol: Mapped[str]=mapped_column(String(20),default="AES-128")
+    auth_secret_encrypted: Mapped[str]=mapped_column(Text)
+    privacy_secret_encrypted: Mapped[str]=mapped_column(Text)
+    enabled: Mapped[bool]=mapped_column(Boolean,default=True)
+    poll_interval_seconds: Mapped[int]=mapped_column(Integer,default=60)
+    status: Mapped[str]=mapped_column(String(20),default="UNKNOWN")
+    system_name: Mapped[str|None]=mapped_column(String(255))
+    system_description: Mapped[str|None]=mapped_column(String(1000))
+    last_polled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str|None]=mapped_column(String(300))
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
 class Policy(Base):
     __tablename__="policies"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

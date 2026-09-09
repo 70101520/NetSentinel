@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
 
 namespace NetSentinel.Agent;
 
@@ -23,7 +24,7 @@ public sealed class AgentWorker(
         catch (InvalidDataException ex) { logger.LogCritical("Local state is invalid: {Reason}", ex.Message); return; }
         if (state.AgentVersion != AgentVersion.Current)
         {
-            state = state with { AgentVersion = AgentVersion.Current };
+            state = state with { AgentVersion = AgentVersion.Current, HeartbeatIntervalSeconds = Math.Max(options.Value.MinimumHeartbeatSeconds, options.Value.HeartbeatIntervalSeconds) };
             await states.SaveAsync(state, stoppingToken);
             logger.LogInformation("Local agent state upgraded to version {Version}", AgentVersion.Current);
         }
@@ -32,8 +33,12 @@ public sealed class AgentWorker(
         if (state.DeviceId is null || credential is null)
         {
             var enrollmentToken = await secrets.LoadBootstrapTokenAsync(stoppingToken);
-            if (string.IsNullOrWhiteSpace(enrollmentToken)) { logger.LogWarning("Enrollment required; no protected bootstrap token is available"); return; }
-            try
+            if (string.IsNullOrWhiteSpace(enrollmentToken))
+            {
+                (state, credential) = await AwaitPortalApprovalAsync(state, stoppingToken);
+                if (credential is null) return;
+            }
+            else try
             {
                 var enrolled = await client.EnrollAsync(system.Enrollment(enrollmentToken, state.InstallationId), stoppingToken);
                 credential = enrolled.Credential;
@@ -43,11 +48,7 @@ public sealed class AgentWorker(
                 await states.SaveAsync(state, stoppingToken);
                 logger.LogInformation("Enrollment succeeded for device {DeviceId}", state.DeviceId);
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-            {
-                logger.LogWarning("Enrollment server is unavailable; service will retry after restart or configuration recovery");
-                return;
-            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { logger.LogWarning("Enrollment server is unavailable; service will retry after restart or configuration recovery"); return; }
         }
 
         var failure = 0;
@@ -98,6 +99,76 @@ public sealed class AgentWorker(
             }
         }
         logger.LogInformation("Agent service stopped cleanly");
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+        try
+        {
+            var state = await states.LoadAsync(CancellationToken.None);
+            var credential = await secrets.LoadCredentialAsync(CancellationToken.None);
+            if (state.DeviceId is not null && !string.IsNullOrWhiteSpace(credential))
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                if (await client.ReportOfflineAsync(credential, timeout.Token)) logger.LogInformation("Offline state reported during service stop");
+            }
+        }
+        catch (Exception ex) { logger.LogWarning("Unable to report service stop: {Reason}", ex.GetType().Name); }
+    }
+
+    private async Task<(LocalState State, string? Credential)> AwaitPortalApprovalAsync(LocalState state, CancellationToken ct)
+    {
+        var secret = await secrets.LoadPairingSecretAsync(ct);
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            secret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            await secrets.SavePairingSecretAsync(secret, ct);
+        }
+        while (!ct.IsCancellationRequested)
+        {
+            if (state.PairingRequestId is null)
+            {
+                var identity = system.Enrollment(string.Empty, state.InstallationId);
+                var snapshot = system.Capture(Guid.Empty);
+                var initialIp = snapshot.ActiveIps.FirstOrDefault(value => System.Net.IPAddress.TryParse(value, out var parsed) && parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(parsed));
+                var registered = await client.RequestPairingAsync(new(secret, state.InstallationId.ToString(), identity.Hostname, identity.OsName, identity.OsVersion, identity.Architecture, identity.AgentVersion, initialIp), ct);
+                if (registered is null)
+                {
+                    state = state with { Enrollment = "PairingUnavailable", Server = "Unreachable" };
+                    await states.SaveAsync(state, ct);
+                    await DelayWithJitter(30, ct);
+                    continue;
+                }
+                state = state with { PairingRequestId = registered.Id, PairingCode = registered.PairingCode, Enrollment = "PendingApproval", Server = "Reachable" };
+                await states.SaveAsync(state, ct);
+                logger.LogInformation("Agent is awaiting portal approval; pairing code {PairingCode}", registered.PairingCode);
+            }
+            try
+            {
+                var claim = await client.ClaimPairingAsync(state.PairingRequestId.Value, secret, ct);
+                if (claim?.Status == "approved" && claim.DeviceId is not null && claim.AgentIdentity is not null && claim.Credential is not null && claim.Server is not null)
+                {
+                    await secrets.SaveCredentialAsync(claim.Credential, ct);
+                    await secrets.DeletePairingSecretAsync(ct);
+                    state = state with { DeviceId = claim.DeviceId, AgentIdentity = claim.AgentIdentity, HeartbeatIntervalSeconds = Math.Max(options.Value.MinimumHeartbeatSeconds, claim.Server.HeartbeatIntervalSeconds), Enrollment = "Enrolled", Server = "Reachable", PairingRequestId = null, PairingCode = null };
+                    await states.SaveAsync(state, ct);
+                    logger.LogInformation("Portal-approved enrollment succeeded for device {DeviceId}", state.DeviceId);
+                    return (state, claim.Credential);
+                }
+                state = state with { Enrollment = "PendingApproval", Server = claim is null ? "Unreachable" : "Reachable" };
+                await states.SaveAsync(state, ct);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                state = state with { Enrollment = "PairingRejected", Server = "Reachable" };
+                await states.SaveAsync(state, ct);
+                logger.LogError("Agent pairing was rejected or expired; reconfiguration is required");
+                return (state, null);
+            }
+            await DelayWithJitter(15, ct);
+        }
+        return (state, null);
     }
 
     private static Task DelayWithJitter(int seconds, CancellationToken ct)

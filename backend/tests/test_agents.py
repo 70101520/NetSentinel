@@ -15,3 +15,12 @@ def test_negative_uptime_rejected():
     with pytest.raises(ValidationError): Heartbeat(device_id=uuid.uuid4(),timestamp=datetime.now(timezone.utc),hostname="PC",agent_version="1",os_name="Windows",uptime_seconds=-1)
 def test_system_metrics_are_bounded():
     with pytest.raises(ValidationError): Heartbeat(device_id=uuid.uuid4(),timestamp=datetime.now(timezone.utc),hostname="PC",agent_version="1",os_name="Windows",uptime_seconds=1,system_metrics={"cpu_percent":101,"sampled_at":datetime.now(timezone.utc)})
+
+def test_system_metrics_include_adapter_and_sample_window():
+    value=Heartbeat(device_id=uuid.uuid4(),timestamp=datetime.now(timezone.utc),hostname="PC",agent_version="1",os_name="Windows",uptime_seconds=1,system_metrics={"network_receive_bps":125000,"network_send_bps":250000,"network_adapter":"Ethernet0","sample_window_seconds":5.02,"sampled_at":datetime.now(timezone.utc)})
+    assert value.system_metrics is not None
+    assert value.system_metrics.network_adapter=="Ethernet0"
+    assert value.system_metrics.sample_window_seconds==5.02
+
+def test_system_metrics_reject_invalid_sample_window():
+    with pytest.raises(ValidationError): Heartbeat(device_id=uuid.uuid4(),timestamp=datetime.now(timezone.utc),hostname="PC",agent_version="1",os_name="Windows",uptime_seconds=1,system_metrics={"sample_window_seconds":301,"sampled_at":datetime.now(timezone.utc)})
