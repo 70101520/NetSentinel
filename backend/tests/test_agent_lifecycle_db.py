@@ -50,7 +50,7 @@ def enrollment_body(token, installation="install-001", hostname="PC-001"):
 
 
 def heartbeat_body(device_id, hostname="PC-001"):
-    return {"device_id": device_id, "timestamp": datetime.now(timezone.utc).isoformat(), "hostname": hostname, "username": "alice", "agent_version": "0.2", "os_name": "Windows", "os_version": "11", "active_ips": ["192.0.2.10"], "mac_addresses": ["02:00:00:00:00:01"], "uptime_seconds": 100}
+    return {"device_id": device_id, "timestamp": datetime.now(timezone.utc).isoformat(), "hostname": hostname, "username": "alice", "agent_version": "0.3", "os_name": "Windows", "os_version": "11", "active_ips": ["192.0.2.10"], "mac_addresses": ["02:00:00:00:00:01"], "uptime_seconds": 100, "system_metrics": {"cpu_percent": 25.5, "memory_percent": 50.0, "disk_percent": 60.0, "network_receive_bps": 1024, "network_send_bps": 512, "network_utilization_percent": 0.1, "sampled_at": datetime.now(timezone.utc).isoformat()}}
 
 
 @pytest.mark.asyncio
@@ -70,6 +70,9 @@ async def test_complete_endpoint_lifecycle_and_inventory(client):
     assert (await client.post("/api/v1/agents/heartbeat", json=heartbeat_body(identity["device_id"]), headers={"X-Agent-Credential": credential + "bad"})).status_code == 401
     details = await client.get(f"/api/v1/devices/{identity['device_id']}")
     assert details.status_code == 200 and details.json()["group_name"] == "HQ" and details.json()["active_ips"] == ["192.0.2.10"]
+    assert details.json()["system_metrics"]["cpu_percent"] == 25.5
+    listed_device=(await client.get("/api/v1/devices?hostname=PC-001")).json()["items"][0]
+    assert listed_device["enrollment_state"]=="ENROLLED" and listed_device["system_metrics"]["memory_percent"]==50.0
     rotated = await client.post(f"/api/v1/agents/devices/{identity['device_id']}/rotate-credential")
     new_credential = rotated.json()["credential"]
     assert (await client.post("/api/v1/agents/heartbeat", json=heartbeat_body(identity["device_id"]), headers={"X-Agent-Credential": credential})).status_code == 401

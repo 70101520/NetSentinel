@@ -82,6 +82,15 @@ public sealed class AgentTests : IDisposable
     }
 
     [Fact]
+    public void System_snapshot_reports_bounded_resource_metrics()
+    {
+        var snapshot=new WindowsSystemSnapshot().Capture(Guid.NewGuid());
+        Assert.NotNull(snapshot.SystemMetrics);
+        Assert.InRange(snapshot.SystemMetrics.MemoryPercent!.Value,0,100);
+        Assert.InRange(snapshot.SystemMetrics.DiskPercent!.Value,0,100);
+    }
+
+    [Fact]
     public async Task Proxy_config_parses_and_server_unavailable_preserves_local_state()
     {
         var json="{\"proxy\":{\"enabled\":true,\"host\":\"proxy.test\",\"port\":3128,\"bypass\":[\"localhost\"],\"mode\":\"configured\",\"version\":2}}";
