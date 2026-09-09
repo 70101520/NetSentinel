@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record
 from app.config import settings
 from app.db import get_db
-from app.models import AgentEnrollment, AgentPairingRequest, Device, DeviceProxyConfiguration, DeviceStateTransition, User
+from app.models import AgentEnrollment, AgentPairingRequest, AssetMetricSample, Device, DeviceProxyConfiguration, DeviceStateTransition, User
 from app.schemas import DeviceAssignment, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
 from app.security import require
 from app.service_auth import derive_secret
@@ -206,7 +206,14 @@ async def heartbeat(request: Request, body: Heartbeat, db: AsyncSession = Depend
     device.last_seen = device.last_heartbeat = now
     device.current_status = "ONLINE"
     metadata={**(device.metadata_ or {}),"active_ips":[str(v) for v in body.active_ips],"mac_addresses":body.mac_addresses,"gateway":str(body.gateway) if body.gateway else None,"dns":[str(v) for v in body.dns]}
-    if body.system_metrics:metadata["system_metrics"]=body.system_metrics.model_dump(mode="json")
+    if body.system_metrics:
+        metrics=body.system_metrics.model_dump(mode="json")
+        metadata["system_metrics"]=metrics
+        last_sample_text=metadata.get("metric_history_sampled_at")
+        last_sample=datetime.fromisoformat(last_sample_text) if last_sample_text else None
+        if not last_sample or (now-last_sample).total_seconds()>=30:
+            db.add(AssetMetricSample(source_type="agent",source_id=device.id,sampled_at=now,uptime_seconds=body.uptime_seconds,cpu_percent=body.system_metrics.cpu_percent,memory_percent=body.system_metrics.memory_percent,disk_percent=body.system_metrics.disk_percent,network_receive_bps=body.system_metrics.network_receive_bps,network_send_bps=body.system_metrics.network_send_bps,interfaces=[{"name":body.system_metrics.network_adapter or "Primary adapter","status":"up","receive_bps":body.system_metrics.network_receive_bps,"send_bps":body.system_metrics.network_send_bps}]))
+            metadata["metric_history_sampled_at"]=now.isoformat()
     device.metadata_=metadata
     if body.proxy_status:
         proxy=await db.get(DeviceProxyConfiguration,device.id)

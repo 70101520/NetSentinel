@@ -6,7 +6,7 @@ from sqlalchemy import delete,select
 
 from app.db import SessionLocal, engine
 from app.main import app
-from app.models import AuditEvent, Permission, Role, RolePermission, SnmpDevice, User, UserRole
+from app.models import AssetMetricSample, AuditEvent, Permission, Role, RolePermission, SnmpDevice, User, UserRole
 from app.schemas import SnmpDeviceInput
 from app.security import issue_token
 from app.snmp_secrets import decrypt_snmp_secret,encrypt_snmp_secret
@@ -70,7 +70,9 @@ def test_snmp_secret_encryption_round_trip():
 
 async def test_snmp_device_create_test_list_and_delete(snmp_client,monkeypatch):
     async def successful_probe(*_):return "pfSense appliance","core-router"
+    async def successful_metrics(*_):return {"uptime_seconds":300,"cpu_percent":10.0,"memory_percent":20.0,"disk_percent":30.0,"network_receive_bps":1000.0,"network_send_bps":500.0,"interfaces":[{"index":1,"name":"WAN","port_name":"igb0","status":"up"}]}
     monkeypatch.setattr("app.snmp.probe_v3",successful_probe)
+    monkeypatch.setattr("app.snmp.probe_metrics_v3",successful_metrics)
     created=await snmp_client.post("/api/v1/snmp/devices",json=payload())
     assert created.status_code==201
     body=created.json();device_id=body["id"]
@@ -91,7 +93,10 @@ async def test_snmp_device_create_test_list_and_delete(snmp_client,monkeypatch):
         stored=await db.get(SnmpDevice,uuid.UUID(device_id))
         assert decrypt_snmp_secret(stored.auth_secret_encrypted)==payload()["auth_password"]
         assert decrypt_snmp_secret(stored.privacy_secret_encrypted)==payload()["privacy_password"]
+    history=await snmp_client.get(f"/api/v1/graphs/snmp/{device_id}?hours=1")
+    assert history.status_code==200 and history.json()["latest"]["interfaces"][0]["name"]=="WAN"
     removed=await snmp_client.delete(f"/api/v1/snmp/devices/{device_id}")
     assert removed.status_code==204
     async with SessionLocal() as db:
+        assert not (await db.scalars(select(AssetMetricSample).where(AssetMetricSample.source_id==uuid.UUID(device_id)))).all()
         await db.execute(delete(AuditEvent).where(AuditEvent.resource_type=="snmp_device"));await db.commit()

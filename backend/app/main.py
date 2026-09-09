@@ -22,20 +22,22 @@ from app.metrics import router as metrics_router
 from app.agents import router as agents_router
 from app.discovery import discovery_scheduler,router as discovery_router
 from app.security_assessment import router as security_assessment_router
-from app.snmp import router as snmp_router
+from app.snmp import router as snmp_router,snmp_scheduler
+from app.graphs import router as graphs_router
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
 async def lifespan(app:FastAPI):
-    stop=asyncio.Event(); evaluator=asyncio.create_task(offline_evaluator(stop));discovery=asyncio.create_task(discovery_scheduler(stop))
+    stop=asyncio.Event(); evaluator=asyncio.create_task(offline_evaluator(stop));discovery=asyncio.create_task(discovery_scheduler(stop));snmp=asyncio.create_task(snmp_scheduler(stop))
     yield
-    stop.set(); await asyncio.gather(evaluator,discovery); await redis.aclose(); await engine.dispose()
+    stop.set(); await asyncio.gather(evaluator,discovery,snmp); await redis.aclose(); await engine.dispose()
 app=FastAPI(title="NetSentinel Management API",version="0.2.0",lifespan=lifespan,docs_url="/docs")
 app.state.redis=redis
 app.include_router(telemetry_router); app.include_router(metrics_router); app.include_router(agents_router)
 app.include_router(discovery_router)
 app.include_router(security_assessment_router)
 app.include_router(snmp_router)
+app.include_router(graphs_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
 @app.exception_handler(OperationalError)
 @app.exception_handler(InterfaceError)

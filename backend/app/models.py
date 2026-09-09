@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import INET, JSONB, MACADDR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
@@ -139,6 +139,19 @@ class SnmpDevice(Base):
     created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
+class AssetMetricSample(Base):
+    __tablename__="asset_metric_samples"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    source_type: Mapped[str]=mapped_column(String(10))
+    source_id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True))
+    sampled_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    uptime_seconds: Mapped[int|None]=mapped_column(BigInteger)
+    cpu_percent: Mapped[float|None]=mapped_column(Float)
+    memory_percent: Mapped[float|None]=mapped_column(Float)
+    disk_percent: Mapped[float|None]=mapped_column(Float)
+    network_receive_bps: Mapped[float|None]=mapped_column(Float)
+    network_send_bps: Mapped[float|None]=mapped_column(Float)
+    interfaces: Mapped[list]=mapped_column(JSONB,default=list)
 class Policy(Base):
     __tablename__="policies"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
