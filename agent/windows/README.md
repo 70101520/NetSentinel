@@ -16,7 +16,7 @@ The normal Setup workflow does not require an enrollment token. It generates a r
 
 ## Build, install, and diagnostics
 
-Download the `NetSentinel-Agent-Setup-win-x64` artifact from a successful CI run and start the Setup executable as an administrator. Enter only the NetSentinel server URL. HTTP can be selected only for a controlled test lab; production enrollment requires HTTPS. After Setup completes, approve the matching pending computer on **Agents** in the portal. The service claims its credential and begins heartbeat reporting automatically.
+Download the `NetSentinel-Agent-Setup-win-x64` artifact from a successful CI run and start the Setup executable as an administrator. Enter the NetSentinel server URL. Monitoring is always selected; optionally select Full control and blocking. HTTP can be selected only for a controlled test lab; production enrollment requires HTTPS. After Setup completes, approve the matching pending computer on **Agents** in the portal. The service claims its credential and begins heartbeat reporting automatically.
 
 The legacy `install-agent.ps1` token workflow remains available only for controlled recovery and automated validation. Administrators can query the installed service with `Get-Service NetSentinelAgent`; ordinary end users do not need to run commands.
 

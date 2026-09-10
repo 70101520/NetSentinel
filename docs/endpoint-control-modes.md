@@ -8,7 +8,7 @@ NetSentinel uses one Windows Agent binary with two server-authoritative operatin
 
 ## Web controlled
 
-`WEB_CONTROLLED` allows a valid per-device proxy configuration to become effective. The installer records a requested mode, but the portal administrator confirms it during pairing approval. Later mode changes require the `agents.manage` permission and are audited. Changing mode increments desired proxy state so an online agent reconciles promptly.
+`WEB_CONTROLLED` allows a valid per-device proxy configuration to become effective. The installer always enables monitoring and optionally requests full control and blocking; the portal administrator confirms that request during pairing approval. Later mode changes require the `agents.manage` permission and are audited. Changing mode increments desired proxy state so an online agent reconciles promptly.
 
 This mode is a control-plane foundation, not a claim of complete browser enforcement. The current Windows component manages WinHTTP only. Production web control additionally requires the managed filtering gateway, browser/user proxy coverage, and pfSense anti-bypass rules for the controlled endpoint scope. Direct TCP 80/443 and UDP 443 bypass must be addressed while allowing the management API, DNS, NTP, internal services, and the gateway. TLS interception is not enabled; HTTPS filtering is limited to host/domain information until a separately approved certificate lifecycle exists.
 

@@ -52,13 +52,15 @@ begin
   LabHttpPage.Add('Allow HTTP for a controlled lab only');
 
   ModePage := CreateInputOptionPage(LabHttpPage.ID,
-    'Agent operating mode',
-    'Choose the requested mode for this computer',
-    'The portal administrator confirms the final mode during enrollment approval.',
-    True, False);
-  ModePage.Add('Monitoring only (normal pfSense/LAN internet)');
-  ModePage.Add('Web controlled (NetSentinel filtering gateway)');
-  ModePage.SelectedValueIndex := 0;
+    'Agent features',
+    'Choose what this computer will allow',
+    'Monitoring is always installed. Full control adds future NetSentinel web filtering and blocking.',
+    False, False);
+  ModePage.Add('Monitoring (required)');
+  ModePage.Add('Full control and blocking');
+  ModePage.Values[0] := True;
+  ModePage.Values[1] := False;
+  ModePage.CheckListBox.ItemEnabled[0] := False;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -126,7 +128,7 @@ begin
       ExpandConstant('{app}\install-paired-agent.ps1') + '" -ServerUrl "' +
       ServerPage.Values[0] + '"';
     if LabHttpPage.Values[0] then Params := Params + ' -AllowHttp';
-    if ModePage.SelectedValueIndex = 1 then Params := Params + ' -RequestedControlMode WEB_CONTROLLED'
+    if ModePage.Values[1] then Params := Params + ' -RequestedControlMode WEB_CONTROLLED'
     else Params := Params + ' -RequestedControlMode MONITOR_ONLY';
     if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params,
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
