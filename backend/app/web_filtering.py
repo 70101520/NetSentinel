@@ -1,5 +1,6 @@
 import ipaddress
 import uuid
+from datetime import datetime,timedelta,timezone
 from urllib.parse import urlsplit
 from fastapi import APIRouter,Depends,HTTPException,Query,Request,status
 from pydantic import BaseModel,Field,field_validator
@@ -38,21 +39,23 @@ class BlockInput(BaseModel):
         except ValueError as exc:raise ValueError(str(exc)) from exc
 
 @router.get("/logs")
-async def logs(page:int=Query(1,ge=1),page_size:int=Query(50,ge=1,le=200),domain:str|None=None,action:str|None=None,device_id:uuid.UUID|None=None,db:AsyncSession=Depends(get_db),_:User=Depends(require("web_logs.view"))):
-    page_size=min(page_size,settings.max_page_size);filters=[]
+async def logs(page:int=Query(1,ge=1),page_size:int=Query(50,ge=1,le=200),domain:str|None=None,action:str|None=None,device_id:uuid.UUID|None=None,since_hours:int=Query(24,ge=0,le=8760),db:AsyncSession=Depends(get_db),_:User=Depends(require("web_logs.view"))):
+    page_size=min(page_size,settings.max_page_size)
+    filters=[Device.enrollment_state=="ENROLLED",Device.control_mode=="WEB_CONTROLLED"]
+    if since_hours:filters.append(ProxyEvent.occurred_at>=datetime.now(timezone.utc)-timedelta(hours=since_hours))
     if domain:filters.append(ProxyEvent.domain.ilike(f"%{domain.strip()}%"))
     if action:
         action=action.upper()
         if action not in {"ALLOW","BLOCK"}:raise HTTPException(422,"action must be ALLOW or BLOCK")
         filters.append(ProxyEvent.action==action)
     if device_id:filters.append(ProxyEvent.device_id==device_id)
-    total=await db.scalar(select(func.count()).select_from(ProxyEvent).where(*filters)) or 0
-    statement=(select(ProxyEvent,Device.hostname.label("device_hostname"),Device.username.label("device_username")).outerjoin(Device,Device.id==ProxyEvent.device_id).where(*filters).order_by(ProxyEvent.occurred_at.desc()).offset((page-1)*page_size).limit(page_size))
+    base=select(ProxyEvent).join(Device,Device.id==ProxyEvent.device_id).where(*filters)
+    total=await db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    statement=(select(ProxyEvent,Device.hostname.label("device_hostname"),Device.username.label("device_username")).join(Device,Device.id==ProxyEvent.device_id).where(*filters).order_by(ProxyEvent.occurred_at.desc()).offset((page-1)*page_size).limit(page_size))
     rows=(await db.execute(statement)).all();items=[]
     for event,device_hostname,device_username in rows:
-        items.append({"id":event.id,"occurred_at":event.occurred_at,"device_id":event.device_id,"hostname":event.hostname or device_hostname,"username":event.username or device_username,"source_ip":str(event.source_ip) if event.source_ip else None,"domain":event.domain,"url":event.url,"protocol":event.protocol,"port":event.port,"action":event.action,"bytes_up":event.bytes_up,"bytes_down":event.bytes_down})
+        items.append({"id":event.id,"occurred_at":event.occurred_at,"device_id":event.device_id,"hostname":device_hostname or event.hostname,"username":device_username or event.username,"source_ip":str(event.source_ip) if event.source_ip else None,"domain":event.domain,"url":event.url,"protocol":event.protocol,"port":event.port,"action":event.action,"bytes_up":event.bytes_up,"bytes_down":event.bytes_down})
     return {"items":items,"meta":{"page":page,"page_size":page_size,"total":total,"pages":(total+page_size-1)//page_size}}
-
 @router.get("/blocklist")
 async def blocklist(db:AsyncSession=Depends(get_db),_:User=Depends(require("policies.view"))):
     rows=(await db.scalars(select(WebBlockRule).where(WebBlockRule.enabled.is_(True)).order_by(WebBlockRule.domain))).all()

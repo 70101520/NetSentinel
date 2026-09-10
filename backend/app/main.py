@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -116,5 +116,6 @@ async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Dep
 @app.get("/api/v1/dashboard")
 async def dashboard(db:AsyncSession=Depends(get_db),_:User=Depends(require("dashboard.view"))):
     total=await db.scalar(select(func.count()).select_from(Device)); cutoff=datetime.fromtimestamp(datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds,tz=timezone.utc); historical=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="REVOKED")); online=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="ENROLLED",Device.current_status=="ONLINE",Device.last_heartbeat>=cutoff))
-    allowed=await db.scalar(select(func.count()).select_from(ProxyEvent).where(ProxyEvent.action=="ALLOW")) or 0;blocked=await db.scalar(select(func.count()).select_from(ProxyEvent).where(ProxyEvent.action=="BLOCK")) or 0
+    web_cutoff=datetime.now(timezone.utc)-timedelta(hours=24);web_scope=(Device.enrollment_state=="ENROLLED",Device.control_mode=="WEB_CONTROLLED",ProxyEvent.occurred_at>=web_cutoff)
+    allowed=await db.scalar(select(func.count()).select_from(ProxyEvent).join(Device,Device.id==ProxyEvent.device_id).where(*web_scope,ProxyEvent.action=="ALLOW")) or 0;blocked=await db.scalar(select(func.count()).select_from(ProxyEvent).join(Device,Device.id==ProxyEvent.device_id).where(*web_scope,ProxyEvent.action=="BLOCK")) or 0
     return {"devices":{"total":total,"online":online,"offline":total-online-historical,"historical":historical},"web":{"allowed":allowed,"blocked":blocked},"components":{"api":"ok"}}
