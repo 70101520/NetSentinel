@@ -11,6 +11,7 @@ public sealed class AgentOptions
     public int HeartbeatIntervalSeconds { get; set; } = 5;
     public string LogLevel { get; set; } = "Information";
     public bool AllowHttp { get; set; } = false;
+    public string RequestedControlMode { get; set; } = "MONITOR_ONLY";
 }
 
 public sealed record LocalState(
@@ -66,6 +67,7 @@ public sealed record PairingRequest(
     [property: JsonPropertyName("os_version")] string OsVersion,
     [property: JsonPropertyName("architecture")] string Architecture,
     [property: JsonPropertyName("agent_version")] string AgentVersion,
+    [property: JsonPropertyName("requested_control_mode")] string RequestedControlMode,
     [property: JsonPropertyName("initial_ip")] string? InitialIp);
 public sealed record PairingRegistration(
     [property: JsonPropertyName("id")] Guid Id,
@@ -108,4 +110,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.4.3"; }
+public static class AgentVersion { public const string Current = "0.5.0"; }

@@ -10,7 +10,7 @@ from app.audit import record
 from app.config import settings
 from app.db import get_db
 from app.models import AgentEnrollment, AgentPairingRequest, AssetMetricSample, Device, DeviceProxyConfiguration, DeviceStateTransition, User
-from app.schemas import DeviceAssignment, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
+from app.schemas import DeviceAssignment, DeviceControlModeInput, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
 from app.security import require
 from app.service_auth import derive_secret
 
@@ -46,10 +46,10 @@ async def request_pairing(request:Request,body:PairingRequestInput,db:AsyncSessi
     if item and pairing_status(item,now) in {"pending","approved"}:
         if not secrets.compare_digest(item.pairing_secret_hash,digest):raise HTTPException(409,"A pairing request already exists for this installation")
     elif item:
-        item.pairing_secret_hash=digest;item.pairing_code=secrets.token_hex(4).upper();item.created_at=now;item.expires_at=now+timedelta(hours=24);item.approved_at=None;item.rejected_at=None;item.claimed_at=None;item.approved_by=None;item.device_id=None
+        item.pairing_secret_hash=digest;item.pairing_code=secrets.token_hex(4).upper();item.created_at=now;item.expires_at=now+timedelta(hours=24);item.approved_at=None;item.rejected_at=None;item.claimed_at=None;item.approved_by=None;item.device_id=None;item.requested_control_mode=body.requested_control_mode
     else:
-        item=AgentPairingRequest(installation_id=body.installation_id,pairing_secret_hash=digest,pairing_code=secrets.token_hex(4).upper(),expires_at=now+timedelta(hours=24),hostname=body.hostname,os_name=body.os_name,os_version=body.os_version,architecture=body.architecture,agent_version=body.agent_version,requested_ip=str(body.initial_ip) if body.initial_ip else None);db.add(item)
-    item.hostname=body.hostname;item.os_name=body.os_name;item.os_version=body.os_version;item.architecture=body.architecture;item.agent_version=body.agent_version;item.requested_ip=str(body.initial_ip) if body.initial_ip else item.requested_ip
+        item=AgentPairingRequest(installation_id=body.installation_id,pairing_secret_hash=digest,pairing_code=secrets.token_hex(4).upper(),expires_at=now+timedelta(hours=24),hostname=body.hostname,os_name=body.os_name,os_version=body.os_version,architecture=body.architecture,agent_version=body.agent_version,requested_ip=str(body.initial_ip) if body.initial_ip else None,requested_control_mode=body.requested_control_mode);db.add(item)
+    item.hostname=body.hostname;item.os_name=body.os_name;item.os_version=body.os_version;item.architecture=body.architecture;item.agent_version=body.agent_version;item.requested_ip=str(body.initial_ip) if body.initial_ip else item.requested_ip;item.requested_control_mode=body.requested_control_mode
     await db.commit();await db.refresh(item)
     return {"id":item.id,"pairing_code":item.pairing_code,"status":pairing_status(item,now),"expires_at":item.expires_at}
 
@@ -69,7 +69,7 @@ async def claim_pairing(pairing_id:uuid.UUID,body:PairingClaimInput,db:AsyncSess
 @router.get("/pairing-requests")
 async def list_pairings(db:AsyncSession=Depends(get_db),_:User=Depends(require("agents.manage"))):
     now=datetime.now(timezone.utc);rows=(await db.scalars(select(AgentPairingRequest).order_by(AgentPairingRequest.created_at.desc()).limit(200))).all()
-    return [{"id":item.id,"pairing_code":item.pairing_code,"hostname":item.hostname,"os_name":item.os_name,"os_version":item.os_version,"architecture":item.architecture,"agent_version":item.agent_version,"requested_ip":str(item.requested_ip) if item.requested_ip else None,"created_at":item.created_at,"expires_at":item.expires_at,"status":pairing_status(item,now),"device_id":item.device_id,"group_name":item.group_name,"department":item.department} for item in rows]
+    return [{"id":item.id,"pairing_code":item.pairing_code,"hostname":item.hostname,"os_name":item.os_name,"os_version":item.os_version,"architecture":item.architecture,"agent_version":item.agent_version,"requested_ip":str(item.requested_ip) if item.requested_ip else None,"created_at":item.created_at,"expires_at":item.expires_at,"status":pairing_status(item,now),"device_id":item.device_id,"group_name":item.group_name,"department":item.department,"requested_control_mode":item.requested_control_mode} for item in rows]
 
 @router.post("/pairing-requests/{pairing_id}/approve")
 async def approve_pairing(pairing_id:uuid.UUID,body:PairingApprovalInput,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
@@ -77,9 +77,9 @@ async def approve_pairing(pairing_id:uuid.UUID,body:PairingApprovalInput,request
     if not item:raise HTTPException(404,"Pairing request not found")
     if pairing_status(item,now)!="pending":raise HTTPException(409,"Only a pending pairing request can be approved")
     if await db.scalar(select(Device.id).where(Device.device_identifier==item.installation_id)):raise HTTPException(409,"Installation is already enrolled")
-    device=Device(device_identifier=item.installation_id,agent_identity=uuid.uuid4(),credential_hash=item.pairing_secret_hash,hostname=item.hostname,ip_address=item.requested_ip,os_name=item.os_name,os_version=item.os_version,architecture=item.architecture,agent_version=item.agent_version,last_seen=now,current_status="OFFLINE",group_name=body.group_name,department=body.department);db.add(device);await db.flush()
+    device=Device(device_identifier=item.installation_id,agent_identity=uuid.uuid4(),credential_hash=item.pairing_secret_hash,hostname=item.hostname,ip_address=item.requested_ip,os_name=item.os_name,os_version=item.os_version,architecture=item.architecture,agent_version=item.agent_version,last_seen=now,current_status="OFFLINE",group_name=body.group_name,department=body.department,control_mode=body.control_mode);db.add(device);await db.flush()
     item.approved_at=now;item.approved_by=user.id;item.device_id=device.id;item.group_name=body.group_name;item.department=body.department
-    db.add(DeviceStateTransition(device_id=device.id,previous_status="UNENROLLED",new_status="OFFLINE"));await record(db,request,user,"agent.pairing.approve","agent_pairing",str(item.id),"success",new={"device_id":str(device.id),"hostname":device.hostname});await db.commit()
+    db.add(DeviceStateTransition(device_id=device.id,previous_status="UNENROLLED",new_status="OFFLINE"));await record(db,request,user,"agent.pairing.approve","agent_pairing",str(item.id),"success",new={"device_id":str(device.id),"hostname":device.hostname,"control_mode":device.control_mode});await db.commit()
     return {"id":item.id,"status":"approved","device_id":device.id}
 
 @router.post("/pairing-requests/{pairing_id}/reject")
@@ -164,18 +164,33 @@ async def authenticated_agent(body: Heartbeat, x_agent_credential: str = Header(
 async def authenticated_agent_header(x_agent_credential: str = Header(...), db: AsyncSession = Depends(get_db)):
     return await authenticate_credential(x_agent_credential, db)
 
-def proxy_payload(item: DeviceProxyConfiguration | None):
-    return {"proxy": {"enabled": item.enabled if item else False, "host": item.host if item else None, "port": item.port if item else None, "bypass": item.bypass if item else [], "mode": item.mode if item else "disabled", "version": item.version if item else 1}}
+def proxy_payload(item: DeviceProxyConfiguration | None,force_disabled:bool=False):
+    return {"proxy": {"enabled": item.enabled if item and not force_disabled else False, "host": item.host if item and not force_disabled else None, "port": item.port if item and not force_disabled else None, "bypass": item.bypass if item and not force_disabled else [], "mode": item.mode if item and not force_disabled else "disabled", "version": item.version if item else 1}}
 
 @router.get("/config")
 async def agent_config(db: AsyncSession = Depends(get_db), device: Device = Depends(authenticated_agent_header)):
-    return proxy_payload(await db.get(DeviceProxyConfiguration, device.id))
+    return {"control_mode":device.control_mode,**proxy_payload(await db.get(DeviceProxyConfiguration,device.id),force_disabled=device.control_mode!="WEB_CONTROLLED")}
 
 @router.get("/devices/{device_id}/proxy-config")
 async def get_proxy_config(device_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require("agents.manage"))):
     if not await db.get(Device, device_id): raise HTTPException(404, "Device not found")
+    device=await db.get(Device,device_id)
     item=await db.get(DeviceProxyConfiguration,device_id)
-    return {**proxy_payload(item),"reported":None if not item else {"applied_version":item.applied_version,"current_state":item.current_state,"drift_detected":item.drift_detected,"last_apply_result":item.last_apply_result,"last_error":item.last_error,"effective_host":item.effective_host,"effective_port":item.effective_port,"bypass_summary":item.bypass_summary,"last_reported_at":item.last_reported_at}}
+    return {"control_mode":device.control_mode,**proxy_payload(item),"reported":None if not item else {"applied_version":item.applied_version,"current_state":item.current_state,"drift_detected":item.drift_detected,"last_apply_result":item.last_apply_result,"last_error":item.last_error,"effective_host":item.effective_host,"effective_port":item.effective_port,"bypass_summary":item.bypass_summary,"last_reported_at":item.last_reported_at}}
+
+@router.put("/devices/{device_id}/control-mode")
+async def update_control_mode(device_id:uuid.UUID,body:DeviceControlModeInput,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    device=await db.get(Device,device_id,with_for_update=True)
+    if not device:raise HTTPException(404,"Device not found")
+    previous=device.control_mode
+    if previous!=body.control_mode:
+        device.control_mode=body.control_mode
+        proxy=await db.get(DeviceProxyConfiguration,device_id,with_for_update=True)
+        if proxy:proxy.version+=1
+        else:db.add(DeviceProxyConfiguration(device_id=device_id,enabled=False,bypass=[],mode="disabled",version=1))
+        await record(db,request,user,"agent.control_mode.update","device",str(device_id),"success",previous={"control_mode":previous},new={"control_mode":body.control_mode})
+        await db.commit()
+    return {"id":device.id,"control_mode":device.control_mode}
 
 @router.put("/devices/{device_id}/proxy-config")
 async def update_proxy_config(device_id: uuid.UUID, body: ProxyConfigurationInput, request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(require("agents.manage"))):

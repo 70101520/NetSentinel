@@ -81,7 +81,7 @@ public sealed class AgentTests : IDisposable
         var deviceId = Guid.NewGuid();
         var registrationJson = $"{{\"id\":\"{requestId}\",\"pairing_code\":\"ABCD-1234\",\"status\":\"pending\",\"expires_at\":\"2030-01-01T00:00:00Z\"}}";
         var registrationClient = new ManagementClient(new HttpClient(new JsonHandler(registrationJson)) { BaseAddress = new Uri("https://server/") });
-        var registration = await registrationClient.RequestPairingAsync(new PairingRequest("secret-value-long-enough", Guid.NewGuid().ToString(), "PC", "Windows", "11", "x64", AgentVersion.Current, "10.0.0.2"), default);
+        var registration = await registrationClient.RequestPairingAsync(new PairingRequest("secret-value-long-enough", Guid.NewGuid().ToString(), "PC", "Windows", "11", "x64", AgentVersion.Current, "MONITOR_ONLY", "10.0.0.2"), default);
         Assert.NotNull(registration);
         Assert.Equal("ABCD-1234", registration.PairingCode);
 
@@ -201,6 +201,14 @@ public sealed class AgentTests : IDisposable
         Assert.Equal("failed",result.LastApplyResult);Assert.Equal(1,result.AppliedVersion);Assert.DoesNotContain("credential",result.LastError??"",StringComparison.OrdinalIgnoreCase);
     }
 
+
+    [Fact]
+    public void Pairing_request_serializes_installer_requested_mode()
+    {
+        var request=new PairingRequest("secret-value-long-enough",Guid.NewGuid().ToString(),"PC","Windows","11","x64",AgentVersion.Current,"WEB_CONTROLLED","10.0.0.2");
+        var json=System.Text.Json.JsonSerializer.Serialize(request);
+        Assert.Contains("\"requested_control_mode\":\"WEB_CONTROLLED\"",json);
+    }
     private sealed class StubHandler(HttpStatusCode? status = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => status is null ? Task.FromException<HttpResponseMessage>(new HttpRequestException("offline")) : Task.FromResult(new HttpResponseMessage(status.Value) { Content = new StringContent("{}", Encoding.UTF8, "application/json") });

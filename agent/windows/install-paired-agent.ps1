@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^https?://')][string]$ServerUrl,
-    [switch]$AllowHttp
+    [switch]$AllowHttp,
+    [ValidateSet('MONITOR_ONLY','WEB_CONTROLLED')][string]$RequestedControlMode='MONITOR_ONLY'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +36,7 @@ try {
     $winHttpKey.SetAccessControl($winHttpAcl)
 } finally { $winHttpKey.Dispose() }
 
-$configure = @('configure','--server',$ServerUrl,'--portal-approval')
+$configure = @('configure','--server',$ServerUrl,'--portal-approval','--control-mode',$RequestedControlMode)
 if ($AllowHttp) { $configure += '--allow-http' }
 & $exe @configure
 if ($LASTEXITCODE -ne 0) { throw "Agent configuration failed with exit code $LASTEXITCODE" }

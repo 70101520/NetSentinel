@@ -54,6 +54,7 @@ class Device(Base):
     boot_time: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); uptime_seconds: Mapped[int|None]=mapped_column(BigInteger)
     last_heartbeat_ip: Mapped[str|None]=mapped_column(INET); current_status: Mapped[str]=mapped_column(String(10),default="OFFLINE")
     enrollment_state: Mapped[str]=mapped_column(String(20),default="ENROLLED"); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
+    control_mode: Mapped[str]=mapped_column(String(20),default="MONITOR_ONLY")
     metadata_: Mapped[dict]=mapped_column("metadata", JSONB, default=dict)
 class AgentEnrollment(Base):
     __tablename__="agent_enrollments"
@@ -64,7 +65,7 @@ class AgentPairingRequest(Base):
     installation_id: Mapped[str]=mapped_column(String(200),unique=True)
     pairing_secret_hash: Mapped[str]=mapped_column(String(64))
     pairing_code: Mapped[str]=mapped_column(String(12),unique=True)
-    hostname: Mapped[str]=mapped_column(String(255));os_name: Mapped[str]=mapped_column(String(100));os_version: Mapped[str|None]=mapped_column(String(100));architecture: Mapped[str|None]=mapped_column(String(30));agent_version: Mapped[str]=mapped_column(String(50));requested_ip: Mapped[str|None]=mapped_column(INET)
+    hostname: Mapped[str]=mapped_column(String(255));os_name: Mapped[str]=mapped_column(String(100));os_version: Mapped[str|None]=mapped_column(String(100));architecture: Mapped[str|None]=mapped_column(String(30));agent_version: Mapped[str]=mapped_column(String(50));requested_ip: Mapped[str|None]=mapped_column(INET);requested_control_mode: Mapped[str]=mapped_column(String(20),default="MONITOR_ONLY")
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now());expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True));approved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));rejected_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True));approved_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"));device_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("devices.id",ondelete="SET NULL"),unique=True);group_name: Mapped[str|None]=mapped_column(String(100));department: Mapped[str|None]=mapped_column(String(100))
 class DeviceStateTransition(Base):
     __tablename__="device_state_transitions"

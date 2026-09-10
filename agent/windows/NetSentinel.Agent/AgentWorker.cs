@@ -132,7 +132,7 @@ public sealed class AgentWorker(
                 var identity = system.Enrollment(string.Empty, state.InstallationId);
                 var snapshot = system.Capture(Guid.Empty);
                 var initialIp = snapshot.ActiveIps.FirstOrDefault(value => System.Net.IPAddress.TryParse(value, out var parsed) && parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(parsed));
-                var registered = await client.RequestPairingAsync(new(secret, state.InstallationId.ToString(), identity.Hostname, identity.OsName, identity.OsVersion, identity.Architecture, identity.AgentVersion, initialIp), ct);
+                var registered = await client.RequestPairingAsync(new(secret, state.InstallationId.ToString(), identity.Hostname, identity.OsName, identity.OsVersion, identity.Architecture, identity.AgentVersion, options.Value.RequestedControlMode, initialIp), ct);
                 if (registered is null)
                 {
                     state = state with { Enrollment = "PairingUnavailable", Server = "Unreachable" };

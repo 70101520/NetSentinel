@@ -10,7 +10,7 @@ class SystemMetrics(BaseModel):
     cpu_percent:float|None=Field(None,ge=0,le=100);memory_percent:float|None=Field(None,ge=0,le=100);disk_percent:float|None=Field(None,ge=0,le=100);network_receive_bps:float|None=Field(None,ge=0);network_send_bps:float|None=Field(None,ge=0);network_utilization_percent:float|None=Field(None,ge=0,le=100);sampled_at:datetime;network_adapter:str|None=Field(None,max_length=255);sample_window_seconds:float|None=Field(None,ge=0,le=300)
 class DeviceOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
-    id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; active_ips:list[str]=Field(default_factory=list); os_name:str|None; os_version:str|None=None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None; enrollment_state:str|None=None; system_metrics:SystemMetrics|None=None
+    id:uuid.UUID; device_identifier:str; hostname:str; username:str|None; ip_address:str|None; active_ips:list[str]=Field(default_factory=list); os_name:str|None; os_version:str|None=None; agent_version:str|None; last_heartbeat:datetime|None; status:str; uptime_seconds:int|None=None; group_name:str|None=None; department:str|None=None; enrollment_state:str|None=None; control_mode:str="MONITOR_ONLY"; system_metrics:SystemMetrics|None=None
 class DevicePage(BaseModel): items:list[DeviceOut]; meta:PageMeta
 class SnmpDeviceInput(BaseModel):
     name:str=Field(min_length=1,max_length=100);vendor:str="generic";ip_address:IPvAnyAddress;port:int=Field(default=161,ge=1,le=65535);version:str="3";username:str=Field(min_length=1,max_length=64);auth_protocol:str="SHA-256";privacy_protocol:str="AES-128";auth_password:str=Field(min_length=8,max_length=255);privacy_password:str=Field(min_length=8,max_length=255);poll_interval_seconds:int=Field(default=60,ge=30,le=86400)
@@ -113,14 +113,40 @@ class TelemetryAccepted(BaseModel): accepted:int; rejected:int=0; status:str="qu
 class EnrollRequest(BaseModel):
     enrollment_token:str=Field(min_length=20,max_length=200); installation_id:str=Field(min_length=8,max_length=200); hostname:str=Field(min_length=1,max_length=255); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); architecture:str|None=Field(None,max_length=30); initial_ip:IPvAnyAddress|None=None; mac_address:str|None=Field(None,max_length=17); agent_version:str=Field(max_length=50)
 class PairingRequestInput(BaseModel):
-    pairing_secret:str=Field(min_length=32,max_length=200);installation_id:str=Field(min_length=8,max_length=200);hostname:str=Field(min_length=1,max_length=255);os_name:str=Field(max_length=100);os_version:str|None=Field(None,max_length=100);architecture:str|None=Field(None,max_length=30);agent_version:str=Field(max_length=50);initial_ip:IPvAnyAddress|None=None
+    pairing_secret:str=Field(min_length=32,max_length=200);installation_id:str=Field(min_length=8,max_length=200);hostname:str=Field(min_length=1,max_length=255);os_name:str=Field(max_length=100);os_version:str|None=Field(None,max_length=100);architecture:str|None=Field(None,max_length=30);agent_version:str=Field(max_length=50);initial_ip:IPvAnyAddress|None=None;requested_control_mode:str="MONITOR_ONLY"
+    @field_validator("requested_control_mode")
+    @classmethod
+    def supported_requested_control_mode(cls,value):
+        value=value.strip().upper()
+        if value not in {"MONITOR_ONLY","WEB_CONTROLLED"}:raise ValueError("requested control mode must be MONITOR_ONLY or WEB_CONTROLLED")
+        return value
 class PairingClaimInput(BaseModel):pairing_secret:str=Field(min_length=32,max_length=200)
-class PairingApprovalInput(BaseModel):group_name:str|None=Field(None,max_length=100);department:str|None=Field(None,max_length=100)
+class PairingApprovalInput(BaseModel):
+    group_name:str|None=Field(None,max_length=100)
+    department:str|None=Field(None,max_length=100)
+    control_mode:str="MONITOR_ONLY"
+
+    @field_validator("control_mode")
+    @classmethod
+    def supported_control_mode(cls,value):
+        value=value.strip().upper()
+        if value not in {"MONITOR_ONLY","WEB_CONTROLLED"}:raise ValueError("control mode must be MONITOR_ONLY or WEB_CONTROLLED")
+        return value
 class Heartbeat(BaseModel):
     device_id:uuid.UUID; timestamp:datetime; hostname:str=Field(max_length=255); username:str|None=Field(None,max_length=255); agent_version:str=Field(max_length=50); os_name:str=Field(max_length=100); os_version:str|None=Field(None,max_length=100); active_ips:list[IPvAnyAddress]=Field(default_factory=list,max_length=32); mac_addresses:list[str]=Field(default_factory=list,max_length=32); gateway:IPvAnyAddress|None=None; dns:list[IPvAnyAddress]=Field(default_factory=list,max_length=16); boot_time:datetime|None=None; uptime_seconds:int=Field(ge=0); proxy_status:ProxyStatus|None=None;system_metrics:SystemMetrics|None=None
 class DeviceAssignment(BaseModel):
     group_name:str|None=Field(None,max_length=100)
     department:str|None=Field(None,max_length=100)
+
+class DeviceControlModeInput(BaseModel):
+    control_mode:str
+
+    @field_validator("control_mode")
+    @classmethod
+    def supported_control_mode(cls,value):
+        value=value.strip().upper()
+        if value not in {"MONITOR_ONLY","WEB_CONTROLLED"}:raise ValueError("control mode must be MONITOR_ONLY or WEB_CONTROLLED")
+        return value
 
 class ProxyStatus(BaseModel):
     desired_version:int=Field(ge=1); applied_version:int|None=Field(None,ge=1); current_state:str=Field(max_length=30); drift_detected:bool=False; last_apply_result:str|None=Field(None,max_length=50); last_error:str|None=Field(None,max_length=500); effective_host:str|None=Field(None,max_length=253); effective_port:int|None=Field(None,ge=1,le=65535); bypass_summary:str|None=Field(None,max_length=500)

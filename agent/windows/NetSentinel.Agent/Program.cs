@@ -63,8 +63,10 @@ public static class Program
         var allowHttp = args.Contains("--allow-http");
         var token = args.Contains("--enrollment-token-stdin") ? await Console.In.ReadLineAsync() : null;
         var portalApproval = args.Contains("--portal-approval");
-        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || (uri.Scheme == "http" && !allowHttp) || (!portalApproval && string.IsNullOrWhiteSpace(token))) { Console.Error.WriteLine("configure requires --server HTTPS_URL and either --portal-approval or --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
-        await File.WriteAllTextAsync(paths.ConfigurationPath, JsonSerializer.Serialize(new { Agent = new { ServerUrl = server, AllowHttp = allowHttp } }, new JsonSerializerOptions { WriteIndented = true }));
+        var modeIndex = Array.IndexOf(args, "--control-mode");
+        var requestedControlMode = modeIndex >= 0 && modeIndex + 1 < args.Length ? args[modeIndex + 1].ToUpperInvariant() : "MONITOR_ONLY";
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || (uri.Scheme == "http" && !allowHttp) || (!portalApproval && string.IsNullOrWhiteSpace(token)) || requestedControlMode is not ("MONITOR_ONLY" or "WEB_CONTROLLED")) { Console.Error.WriteLine("configure requires --server HTTPS_URL and either --portal-approval or --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
+        await File.WriteAllTextAsync(paths.ConfigurationPath, JsonSerializer.Serialize(new { Agent = new { ServerUrl = server, AllowHttp = allowHttp, RequestedControlMode = requestedControlMode } }, new JsonSerializerOptions { WriteIndented = true }));
         var secretStore = new DpapiSecretStore(paths);
         if (!string.IsNullOrWhiteSpace(token)) await secretStore.SaveBootstrapTokenAsync(token, CancellationToken.None);
         if (portalApproval)

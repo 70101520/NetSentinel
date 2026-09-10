@@ -22,7 +22,7 @@ async def proxy_client():
         if not permission:permission=Permission(code="agents.manage");db.add(permission);await db.flush()
         user=User(email=f"proxy-{uuid.uuid4()}@example.invalid",password_hash="unused")
         role=Role(name=f"proxy-{uuid.uuid4()}");role.permissions.append(permission);user.roles.append(role);db.add(user)
-        first=Device(device_identifier="proxy-device-1",hostname="PROXY-ONE",credential_hash=derive_secret("first-secret"),enrollment_state="ENROLLED")
+        first=Device(device_identifier="proxy-device-1",hostname="PROXY-ONE",credential_hash=derive_secret("first-secret"),enrollment_state="ENROLLED",control_mode="WEB_CONTROLLED")
         second=Device(device_identifier="proxy-device-2",hostname="PROXY-TWO",credential_hash=derive_secret("second-secret"),enrollment_state="ENROLLED")
         revoked=Device(device_identifier="proxy-device-3",hostname="PROXY-REVOKED",credential_hash=derive_secret("revoked-secret"),enrollment_state="REVOKED",credential_revoked_at=datetime.now(timezone.utc))
         db.add_all([first,second,revoked]);await db.commit();await db.refresh(user);await db.refresh(first);await db.refresh(second);await db.refresh(revoked)
@@ -68,3 +68,21 @@ async def test_heartbeat_records_safe_proxy_status(proxy_client):
     assert result.status_code==200
     reported=(await client.get(f"/api/v1/agents/devices/{first.id}/proxy-config")).json()["reported"]
     assert reported["applied_version"]==1 and reported["last_error"] is None and reported["bypass_summary"]=="1 entries"
+
+@pytest.mark.asyncio
+async def test_monitor_only_forces_proxy_off_until_admin_enables_web_control(proxy_client):
+    client,_,second,_=proxy_client
+    header={"X-Agent-Credential":f"{second.id}.second-secret"}
+    desired={"enabled":True,"host":"gateway.test.invalid","port":3128,"bypass":["localhost"],"mode":"configured"}
+    assert (await client.put(f"/api/v1/agents/devices/{second.id}/proxy-config",json=desired)).status_code==200
+    monitor=(await client.get("/api/v1/agents/config",headers=header)).json()
+    assert monitor["control_mode"]=="MONITOR_ONLY" and monitor["proxy"]["enabled"] is False
+    enabled=await client.put(f"/api/v1/agents/devices/{second.id}/control-mode",json={"control_mode":"WEB_CONTROLLED"})
+    assert enabled.status_code==200 and enabled.json()["control_mode"]=="WEB_CONTROLLED"
+    controlled=(await client.get("/api/v1/agents/config",headers=header)).json()
+    assert controlled["proxy"]["enabled"] is True and controlled["proxy"]["host"]=="gateway.test.invalid"
+    disabled=await client.put(f"/api/v1/agents/devices/{second.id}/control-mode",json={"control_mode":"MONITOR_ONLY"})
+    assert disabled.status_code==200
+    restored=(await client.get("/api/v1/agents/config",headers=header)).json()
+    assert restored["proxy"]["enabled"] is False and restored["proxy"]["version"]>controlled["proxy"]["version"]
+    assert (await client.put(f"/api/v1/agents/devices/{second.id}/control-mode",json={"control_mode":"BYPASS"})).status_code==422
