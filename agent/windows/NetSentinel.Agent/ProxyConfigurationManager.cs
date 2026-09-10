@@ -138,14 +138,14 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
     {
         if (File.Exists(paths.ProxyBaselinePath))
         {
-            var baseline=JsonSerializer.Deserialize<ProxySnapshot>(await File.ReadAllTextAsync(paths.ProxyBaselinePath,ct),Json) ?? throw new InvalidDataException("Proxy baseline is invalid");
-            if (!baseline.EdgePolicyPresent.HasValue || !baseline.ChromePolicyPresent.HasValue)
+            var savedBaseline=JsonSerializer.Deserialize<ProxySnapshot>(await File.ReadAllTextAsync(paths.ProxyBaselinePath,ct),Json) ?? throw new InvalidDataException("Proxy baseline is invalid");
+            if (!savedBaseline.EdgePolicyPresent.HasValue || !savedBaseline.ChromePolicyPresent.HasValue)
             {
                 var current=store.Read();
-                baseline=baseline with { EdgePolicyPresent=current.EdgePolicyPresent,EdgeProxySettings=current.EdgeProxySettings,ChromePolicyPresent=current.ChromePolicyPresent,ChromeProxySettings=current.ChromeProxySettings };
-                await File.WriteAllTextAsync(paths.ProxyBaselinePath,JsonSerializer.Serialize(baseline,Json),ct);
+                savedBaseline=savedBaseline with { EdgePolicyPresent=current.EdgePolicyPresent,EdgeProxySettings=current.EdgeProxySettings,ChromePolicyPresent=current.ChromePolicyPresent,ChromeProxySettings=current.ChromeProxySettings };
+                await File.WriteAllTextAsync(paths.ProxyBaselinePath,JsonSerializer.Serialize(savedBaseline,Json),ct);
             }
-            return baseline;
+            return savedBaseline;
         }
         var baseline = store.Read();
         var temporary = paths.ProxyBaselinePath + ".tmp";
