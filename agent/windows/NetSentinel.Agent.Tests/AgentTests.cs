@@ -143,6 +143,7 @@ public sealed class AgentTests : IDisposable
     {
         var json="{\"proxy\":{\"enabled\":true,\"host\":\"proxy.test\",\"port\":3128,\"bypass\":[\"localhost\"],\"mode\":\"configured\",\"version\":2}}";
         var client=new ManagementClient(new HttpClient(new JsonHandler(json)){BaseAddress=new Uri("https://server/")});
+        Assert.True(await client.SyncControlModeAsync("credential","WEB_CONTROLLED",default));
         var config=await client.GetConfigurationAsync("credential",default);
         Assert.NotNull(config);Assert.Equal(2,config.Version);Assert.Equal("proxy.test",config.Host);
         var offline=new ManagementClient(new HttpClient(new StubHandler()){BaseAddress=new Uri("https://server/")});

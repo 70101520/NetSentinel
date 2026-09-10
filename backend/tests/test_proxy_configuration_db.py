@@ -77,7 +77,7 @@ async def test_monitor_only_forces_proxy_off_until_admin_enables_web_control(pro
     assert (await client.put(f"/api/v1/agents/devices/{second.id}/proxy-config",json=desired)).status_code==200
     monitor=(await client.get("/api/v1/agents/config",headers=header)).json()
     assert monitor["control_mode"]=="MONITOR_ONLY" and monitor["proxy"]["enabled"] is False
-    enabled=await client.put(f"/api/v1/agents/devices/{second.id}/control-mode",json={"control_mode":"WEB_CONTROLLED"})
+    enabled=await client.put("/api/v1/agents/control-mode",json={"control_mode":"WEB_CONTROLLED"},headers=header)
     assert enabled.status_code==200 and enabled.json()["control_mode"]=="WEB_CONTROLLED"
     controlled=(await client.get("/api/v1/agents/config",headers=header)).json()
     assert controlled["proxy"]["enabled"] is True and controlled["proxy"]["host"]=="gateway.test.invalid"

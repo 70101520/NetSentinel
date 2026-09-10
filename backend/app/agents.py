@@ -171,6 +171,16 @@ def proxy_payload(item: DeviceProxyConfiguration | None,force_disabled:bool=Fals
 async def agent_config(db: AsyncSession = Depends(get_db), device: Device = Depends(authenticated_agent_header)):
     return {"control_mode":device.control_mode,**proxy_payload(await db.get(DeviceProxyConfiguration,device.id),force_disabled=device.control_mode!="WEB_CONTROLLED")}
 
+@router.put("/control-mode")
+async def sync_agent_control_mode(body:DeviceControlModeInput,db:AsyncSession=Depends(get_db),device:Device=Depends(authenticated_agent_header)):
+    if device.control_mode!=body.control_mode:
+        device.control_mode=body.control_mode
+        proxy=await db.get(DeviceProxyConfiguration,device.id,with_for_update=True)
+        if proxy:proxy.version+=1
+        else:db.add(DeviceProxyConfiguration(device_id=device.id,enabled=False,bypass=[],mode="disabled",version=1))
+        await db.commit()
+    return {"id":device.id,"control_mode":device.control_mode}
+
 @router.get("/devices/{device_id}/proxy-config")
 async def get_proxy_config(device_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require("agents.manage"))):
     if not await db.get(Device, device_id): raise HTTPException(404, "Device not found")

@@ -1,5 +1,5 @@
 #define MyAppName "NetSentinel Agent"
-#define MyAppVersion "0.6.1"
+#define MyAppVersion "0.6.2"
 #define MyAppPublisher "NetSentinel"
 #define MyAppExeName "NetSentinel.Agent.exe"
 

@@ -19,6 +19,20 @@ public sealed class ManagementClient(HttpClient http)
         try{using var response=await http.SendAsync(message,ct);if(response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Gone)throw new UnauthorizedAccessException("Agent pairing was rejected, expired, or invalid");if(!response.IsSuccessStatusCode)return null;return await response.Content.ReadFromJsonAsync<PairingClaim>(cancellationToken:ct);}
         catch(HttpRequestException){return null;}catch(TaskCanceledException) when(!ct.IsCancellationRequested){return null;}
     }
+    public async Task<bool> SyncControlModeAsync(string credential,string requestedControlMode,CancellationToken ct)
+    {
+        using var message=new HttpRequestMessage(HttpMethod.Put,"api/v1/agents/control-mode"){Content=JsonContent.Create(new{control_mode=requestedControlMode})};
+        message.Headers.Add("X-Agent-Credential",credential);
+        try
+        {
+            using var response=await http.SendAsync(message,ct);
+            if(response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)throw new UnauthorizedAccessException("Agent credential rejected during control-mode sync");
+            return response.IsSuccessStatusCode;
+        }
+        catch(HttpRequestException){return false;}
+        catch(TaskCanceledException) when(!ct.IsCancellationRequested){return false;}
+    }
+
     public async Task<ProxyConfiguration?> GetConfigurationAsync(string credential, CancellationToken ct)
     {
         using var message = new HttpRequestMessage(HttpMethod.Get, "api/v1/agents/config");

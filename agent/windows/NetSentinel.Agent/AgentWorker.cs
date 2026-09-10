@@ -56,6 +56,7 @@ public sealed class AgentWorker(
         {
             try
             {
+                if (!await client.SyncControlModeAsync(credential!,options.Value.RequestedControlMode,stoppingToken)) logger.LogWarning("Installer-selected control mode could not be synchronized");
                 var desired = await client.GetConfigurationAsync(credential!, stoppingToken);
                 if (desired is not null)
                 {
