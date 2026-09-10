@@ -160,7 +160,7 @@ public sealed class AgentTests : IDisposable
     [Fact]
     public async Task Proxy_baseline_is_captured_once_apply_is_versioned_and_disable_restores()
     {
-        var paths=new AgentPaths(root);var baseline=new ProxySnapshot(false,null,null);var store=new FakeProxyStore(baseline);
+        var paths=new AgentPaths(root);var baseline=new ProxySnapshot(false,null,null,EdgePolicyPresent:false,ChromePolicyPresent:false);var store=new FakeProxyStore(baseline);
         var manager=new ProxyConfigurationManager(store,paths,NullLogger<ProxyConfigurationManager>.Instance);
         var desired=new ProxyConfiguration(true,"proxy.test",3128,["localhost","*.internal"],"configured",1);
         var applied=await manager.ReconcileAsync(desired,null,default);
