@@ -112,7 +112,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
             var baseline = await LoadOrCaptureBaselineAsync(ct);
             var proxy=$"{desired.Host}:{desired.Port}";
             var browserPolicy=JsonSerializer.Serialize(new Dictionary<string,string>{{"ProxyMode","fixed_servers"},{"ProxyServer",proxy},{"ProxyBypassList",string.Join(',',desired.Bypass)}});
-            var expected = desired.Enabled ? new ProxySnapshot(true, proxy, string.Join(';', desired.Bypass), 1, proxy, string.Join(';', desired.Bypass), 0, true, browserPolicy, true, browserPolicy) : baseline;
+            var expected = desired.Enabled ? new ProxySnapshot(true, proxy, string.Join(';', desired.Bypass), baseline.BrowserProxyEnable, baseline.BrowserProxy, baseline.BrowserBypass, baseline.ProxySettingsPerUser, true, browserPolicy, true, browserPolicy) : baseline;
             var actual = store.Read();
             var drift = !Equivalent(actual, expected);
             var versionChanged = previous?.AppliedVersion != desired.Version;
@@ -121,7 +121,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
             {
                 store.Write(expected);
                 actual = store.Read();
-                if (!Equivalent(actual, expected)) throw new IOException("WinHTTP proxy state did not match after apply");
+                if (!Equivalent(actual, expected)) throw new IOException("Managed proxy state did not match after apply");
                 logger.LogInformation(desired.Enabled ? "Proxy configuration version {Version} applied" : "Proxy baseline restored for configuration version {Version}", desired.Version);
             }
             else logger.LogDebug("Proxy configuration version {Version} unchanged", desired.Version);
@@ -156,7 +156,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         return baseline;
     }
 
-    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) && left.BrowserProxyEnable == right.BrowserProxyEnable && string.Equals(left.BrowserProxy ?? "", right.BrowserProxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.BrowserBypass ?? "", right.BrowserBypass ?? "", StringComparison.OrdinalIgnoreCase) && left.ProxySettingsPerUser == right.ProxySettingsPerUser && left.EdgePolicyPresent == right.EdgePolicyPresent && string.Equals(left.EdgeProxySettings ?? "",right.EdgeProxySettings ?? "",StringComparison.Ordinal) && left.ChromePolicyPresent == right.ChromePolicyPresent && string.Equals(left.ChromeProxySettings ?? "",right.ChromeProxySettings ?? "",StringComparison.Ordinal);
+    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) && left.EdgePolicyPresent == right.EdgePolicyPresent && string.Equals(left.EdgeProxySettings ?? "",right.EdgeProxySettings ?? "",StringComparison.Ordinal) && left.ChromePolicyPresent == right.ChromePolicyPresent && string.Equals(left.ChromeProxySettings ?? "",right.ChromeProxySettings ?? "",StringComparison.Ordinal);
 
     public static async Task RestoreBaselineAsync(IWindowsProxyStore store, AgentPaths paths, CancellationToken ct)
     {

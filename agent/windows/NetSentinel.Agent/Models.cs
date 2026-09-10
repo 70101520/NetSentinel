@@ -110,4 +110,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.6.2"; }
+public static class AgentVersion { public const string Current = "0.6.3"; }

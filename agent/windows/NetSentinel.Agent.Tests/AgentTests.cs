@@ -161,12 +161,13 @@ public sealed class AgentTests : IDisposable
     [Fact]
     public async Task Proxy_baseline_is_captured_once_apply_is_versioned_and_disable_restores()
     {
-        var paths=new AgentPaths(root);var baseline=new ProxySnapshot(false,null,null,EdgePolicyPresent:false,ChromePolicyPresent:false);var store=new FakeProxyStore(baseline);
+        var paths=new AgentPaths(root);var baseline=new ProxySnapshot(false,null,null,0,"legacy:8080","<local>",1,false,null,false,null);var store=new FakeProxyStore(baseline);
         var manager=new ProxyConfigurationManager(store,paths,NullLogger<ProxyConfigurationManager>.Instance);
         var desired=new ProxyConfiguration(true,"proxy.test",3128,["localhost","*.internal"],"configured",1);
         var applied=await manager.ReconcileAsync(desired,null,default);
         Assert.Equal(1,store.Writes);Assert.Equal(1,applied.AppliedVersion);Assert.True(File.Exists(paths.ProxyBaselinePath));
         Assert.True(store.Value.EdgePolicyPresent);Assert.True(store.Value.ChromePolicyPresent);Assert.Contains("\"ProxyMode\":\"fixed_servers\"",store.Value.EdgeProxySettings);
+        Assert.Equal(0,store.Value.BrowserProxyEnable);Assert.Equal("legacy:8080",store.Value.BrowserProxy);
         var unchanged=await manager.ReconcileAsync(desired,applied,default);
         Assert.Equal(1,store.Writes);Assert.Equal("no-change",unchanged.LastApplyResult);
         var disabled=await manager.ReconcileAsync(new(false,null,null,[],"disabled",2),unchanged,default);
