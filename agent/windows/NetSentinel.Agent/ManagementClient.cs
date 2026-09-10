@@ -28,7 +28,13 @@ public sealed class ManagementClient(HttpClient http)
             using var response = await http.SendAsync(message, ct);
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) throw new UnauthorizedAccessException("Agent credential rejected during configuration sync");
             if (!response.IsSuccessStatusCode) return null;
-            return (await response.Content.ReadFromJsonAsync<ProxyConfigurationEnvelope>(cancellationToken: ct))?.Proxy ?? throw new InvalidDataException("Proxy configuration response was empty");
+            var envelope = await response.Content.ReadFromJsonAsync<ProxyConfigurationEnvelope>(cancellationToken: ct) ?? throw new InvalidDataException("Proxy configuration response was empty");
+            if (envelope.ControlMode == "WEB_CONTROLLED" && !envelope.Proxy.Enabled)
+            {
+                var host = http.BaseAddress?.Host ?? throw new InvalidDataException("Management server host is unavailable");
+                return new ProxyConfiguration(true, host, 3128, ["localhost", "127.0.0.1", host], "configured", envelope.Proxy.Version);
+            }
+            return envelope.Proxy;
         }
         catch (HttpRequestException) { return null; }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return null; }

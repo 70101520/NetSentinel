@@ -36,6 +36,19 @@ try {
     $winHttpKey.SetAccessControl($winHttpAcl)
 } finally { $winHttpKey.Dispose() }
 
+
+@('SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings') | ForEach-Object {
+    $proxyKey = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($_,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree)
+    if (-not $proxyKey) { throw "Machine proxy registry key is unavailable: $_" }
+    try {
+        $proxyAcl = $proxyKey.GetAccessControl()
+        $proxyRights = [Security.AccessControl.RegistryRights]::QueryValues -bor [Security.AccessControl.RegistryRights]::SetValue -bor [Security.AccessControl.RegistryRights]::CreateSubKey
+        $proxyRule = [Security.AccessControl.RegistryAccessRule]::new('NT AUTHORITY\LOCAL SERVICE',$proxyRights,'None','None','Allow')
+        $proxyAcl.AddAccessRule($proxyRule) | Out-Null
+        $proxyKey.SetAccessControl($proxyAcl)
+    } finally { $proxyKey.Dispose() }
+}
+
 $configure = @('configure','--server',$ServerUrl,'--portal-approval','--control-mode',$RequestedControlMode)
 if ($AllowHttp) { $configure += '--allow-http' }
 & $exe @configure

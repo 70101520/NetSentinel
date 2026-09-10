@@ -169,6 +169,14 @@ class PolicyRule(Base):
     domain_pattern: Mapped[str]=mapped_column(String(253))
     expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool]=mapped_column(Boolean, default=True)
+class WebBlockRule(Base):
+    __tablename__="web_block_rules"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    domain: Mapped[str]=mapped_column(String(253),unique=True)
+    include_subdomains: Mapped[bool]=mapped_column(Boolean,default=True)
+    enabled: Mapped[bool]=mapped_column(Boolean,default=True)
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
 class AuditEvent(Base):
     __tablename__="audit_events"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

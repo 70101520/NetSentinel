@@ -60,6 +60,23 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 512m
     cpus: 1.0
+  web-gateway:
+    build: ./backend
+    env_file: .env
+    command: [python, -m, app.web_gateway]
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ['3128:3128']
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('localhost', 3128), 2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [edge, data]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1.0
   portal:
     build: ./frontend
     depends_on:

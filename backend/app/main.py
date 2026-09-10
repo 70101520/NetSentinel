@@ -12,7 +12,7 @@ from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError, Timeout
 from app.audit import record
 from app.config import settings
 from app.db import engine, get_db
-from app.models import Device, DeviceStateTransition, Policy, PolicyRule, User
+from app.models import Device, DeviceStateTransition, Policy, PolicyRule, ProxyEvent, User
 from app.offline import offline_evaluator
 from app.policy import evaluate
 from app.schemas import Decision, DecisionRequest, DevicePage, Token
@@ -24,6 +24,7 @@ from app.discovery import discovery_scheduler,router as discovery_router
 from app.security_assessment import router as security_assessment_router
 from app.snmp import router as snmp_router,snmp_scheduler
 from app.graphs import router as graphs_router
+from app.web_filtering import router as web_filtering_router
 
 redis=Redis.from_url(settings.redis_url, decode_responses=True)
 @asynccontextmanager
@@ -38,6 +39,7 @@ app.include_router(discovery_router)
 app.include_router(security_assessment_router)
 app.include_router(snmp_router)
 app.include_router(graphs_router)
+app.include_router(web_filtering_router)
 app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type","X-Request-ID"])
 @app.exception_handler(OperationalError)
 @app.exception_handler(InterfaceError)
@@ -67,6 +69,9 @@ async def ready():
     except Exception: checks["database"]="unavailable"
     try: checks["redis"]="ok" if await redis.ping() else "unavailable"
     except Exception: checks["redis"]="unavailable"
+    try:
+        reader,writer=await asyncio.wait_for(asyncio.open_connection("web-gateway",3128),2);writer.close();await writer.wait_closed();checks["web_gateway"]="ok"
+    except Exception: checks["web_gateway"]="unavailable"
     if "unavailable" in checks.values(): raise HTTPException(503,detail=checks)
     return {"status":"ok","components":checks}
 @app.post("/api/v1/auth/token",response_model=Token)
@@ -111,4 +116,5 @@ async def decide(body:DecisionRequest,db:AsyncSession=Depends(get_db),_:User=Dep
 @app.get("/api/v1/dashboard")
 async def dashboard(db:AsyncSession=Depends(get_db),_:User=Depends(require("dashboard.view"))):
     total=await db.scalar(select(func.count()).select_from(Device)); cutoff=datetime.fromtimestamp(datetime.now(timezone.utc).timestamp()-settings.agent_heartbeat_timeout_seconds,tz=timezone.utc); historical=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="REVOKED")); online=await db.scalar(select(func.count()).select_from(Device).where(Device.enrollment_state=="ENROLLED",Device.current_status=="ONLINE",Device.last_heartbeat>=cutoff))
-    return {"devices":{"total":total,"online":online,"offline":total-online-historical,"historical":historical},"components":{"api":"ok"}}
+    allowed=await db.scalar(select(func.count()).select_from(ProxyEvent).where(ProxyEvent.action=="ALLOW")) or 0;blocked=await db.scalar(select(func.count()).select_from(ProxyEvent).where(ProxyEvent.action=="BLOCK")) or 0
+    return {"devices":{"total":total,"online":online,"offline":total-online-historical,"historical":historical},"web":{"allowed":allowed,"blocked":blocked},"components":{"api":"ok"}}

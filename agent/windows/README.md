@@ -6,7 +6,7 @@ This directory contains enrollment, machine-bound identity/credential persistenc
 
 The agent is a self-contained .NET 8 Windows Worker Service (`win-x64`) hosted by the Windows Service Control Manager as `NetSentinelAgent`. SCM configures automatic startup and bounded recovery restarts. The Generic Host passes SCM stop/shutdown into a cancellation token, and all waits are cancellable. The current service runs as `NT AUTHORITY\LocalService`; this foundation requires outbound HTTP(S), read-only machine/network/session metadata, and write access only to its protected ProgramData directory. It does not request LocalSystem, administrator, debug, driver, firewall, or impersonation privileges.
 
-Versioning follows SemVer. This release reports `0.5.0`. CI produces both the self-contained binary bundle and a Windows Setup executable. Remote unattended update is intentionally absent.
+Versioning follows SemVer. This release reports `0.6.0`. CI produces both the self-contained binary bundle and a Windows Setup executable. Remote unattended update is intentionally absent.
 
 ## Local security model
 

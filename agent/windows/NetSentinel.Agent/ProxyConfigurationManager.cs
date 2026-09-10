@@ -3,10 +3,11 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 
 namespace NetSentinel.Agent;
 
-public sealed record ProxySnapshot(bool Enabled, string? Proxy, string? Bypass);
+public sealed record ProxySnapshot(bool Enabled, string? Proxy, string? Bypass, int? BrowserProxyEnable = null, string? BrowserProxy = null, string? BrowserBypass = null, int? ProxySettingsPerUser = null);
 
 public interface IWindowsProxyStore
 {
@@ -22,6 +23,9 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
     [DllImport("winhttp.dll", SetLastError = true)] private static extern bool WinHttpGetDefaultProxyConfiguration(out Info info);
     [DllImport("winhttp.dll", SetLastError = true)] private static extern bool WinHttpSetDefaultProxyConfiguration(ref Info info);
     [DllImport("kernel32.dll")] private static extern IntPtr GlobalFree(IntPtr value);
+    [DllImport("wininet.dll", SetLastError = true)] private static extern bool InternetSetOption(IntPtr internet, int option, IntPtr buffer, int length);
+    private const string InternetSettings = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings";
+    private const string InternetPolicy = @"SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings";
 
     public ProxySnapshot Read()
     {
@@ -32,7 +36,12 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
             if (error == 12180) return new(false, null, null);
             throw new Win32Exception(error, "Unable to read WinHTTP proxy configuration");
         }
-        try { return new(info.AccessType == NamedProxy, Marshal.PtrToStringUni(info.Proxy), Marshal.PtrToStringUni(info.Bypass)); }
+        try
+        {
+            using var settings = Registry.LocalMachine.OpenSubKey(InternetSettings);
+            using var policy = Registry.LocalMachine.OpenSubKey(InternetPolicy);
+            return new(info.AccessType == NamedProxy, Marshal.PtrToStringUni(info.Proxy), Marshal.PtrToStringUni(info.Bypass), settings?.GetValue("ProxyEnable") as int?, settings?.GetValue("ProxyServer") as string, settings?.GetValue("ProxyOverride") as string, policy?.GetValue("ProxySettingsPerUser") as int?);
+        }
         finally { if (info.Proxy != IntPtr.Zero) GlobalFree(info.Proxy); if (info.Bypass != IntPtr.Zero) GlobalFree(info.Bypass); }
     }
 
@@ -43,6 +52,17 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
         var succeeded=false;var error=0;
         try { succeeded=WinHttpSetDefaultProxyConfiguration(ref info);if(!succeeded)error=Marshal.GetLastWin32Error(); }
         finally { if (info.Proxy != IntPtr.Zero) Marshal.FreeHGlobal(info.Proxy); if (info.Bypass != IntPtr.Zero) Marshal.FreeHGlobal(info.Bypass); }
+        if (value.BrowserProxyEnable.HasValue)
+        {
+            using var policy = Registry.LocalMachine.CreateSubKey(InternetPolicy, true) ?? throw new IOException("Unable to open machine proxy policy");
+            using var settings = Registry.LocalMachine.CreateSubKey(InternetSettings, true) ?? throw new IOException("Unable to open machine Internet settings");
+            if (value.ProxySettingsPerUser.HasValue) policy.SetValue("ProxySettingsPerUser", value.ProxySettingsPerUser.Value, RegistryValueKind.DWord); else policy.DeleteValue("ProxySettingsPerUser", false);
+            settings.SetValue("ProxyEnable", value.BrowserProxyEnable.Value, RegistryValueKind.DWord);
+            if (value.BrowserProxy is not null) settings.SetValue("ProxyServer", value.BrowserProxy, RegistryValueKind.String); else settings.DeleteValue("ProxyServer", false);
+            if (value.BrowserBypass is not null) settings.SetValue("ProxyOverride", value.BrowserBypass, RegistryValueKind.String); else settings.DeleteValue("ProxyOverride", false);
+            InternetSetOption(IntPtr.Zero, 39, IntPtr.Zero, 0);
+            InternetSetOption(IntPtr.Zero, 37, IntPtr.Zero, 0);
+        }
         if (!succeeded)
         {
             var actual=Read();
@@ -74,7 +94,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         {
             Validate(desired);
             var baseline = await LoadOrCaptureBaselineAsync(ct);
-            var expected = desired.Enabled ? new ProxySnapshot(true, $"{desired.Host}:{desired.Port}", string.Join(';', desired.Bypass)) : baseline;
+            var expected = desired.Enabled ? new ProxySnapshot(true, $"{desired.Host}:{desired.Port}", string.Join(';', desired.Bypass), 1, $"{desired.Host}:{desired.Port}", string.Join(';', desired.Bypass), 0) : baseline;
             var actual = store.Read();
             var drift = !Equivalent(actual, expected);
             var versionChanged = previous?.AppliedVersion != desired.Version;
@@ -108,7 +128,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         return baseline;
     }
 
-    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase);
+    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) && left.BrowserProxyEnable == right.BrowserProxyEnable && string.Equals(left.BrowserProxy ?? "", right.BrowserProxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.BrowserBypass ?? "", right.BrowserBypass ?? "", StringComparison.OrdinalIgnoreCase) && left.ProxySettingsPerUser == right.ProxySettingsPerUser;
 
     public static async Task RestoreBaselineAsync(IWindowsProxyStore store, AgentPaths paths, CancellationToken ct)
     {

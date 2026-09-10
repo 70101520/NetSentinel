@@ -1,5 +1,5 @@
 #define MyAppName "NetSentinel Agent"
-#define MyAppVersion "0.5.0"
+#define MyAppVersion "0.6.0"
 #define MyAppPublisher "NetSentinel"
 #define MyAppExeName "NetSentinel.Agent.exe"
 
@@ -54,7 +54,7 @@ begin
   ModePage := CreateInputOptionPage(LabHttpPage.ID,
     'Agent features',
     'Choose what this computer will allow',
-    'Monitoring is always installed. Full control adds future NetSentinel web filtering and blocking.',
+    'Monitoring is always installed. Full control routes supported web traffic through NetSentinel for domain logging and blocking.',
     False, False);
   ModePage.Add('Monitoring (required)');
   ModePage.Add('Full control and blocking');

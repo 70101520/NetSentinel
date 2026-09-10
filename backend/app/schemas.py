@@ -85,11 +85,15 @@ class TelemetryEvent(BaseModel):
     url:str|None=Field(default=None,max_length=4096)
     protocol:str=Field(min_length=1,max_length=20)
     port:int=Field(ge=1,le=65535)
+    method:str|None=Field(default=None,max_length=20)
+    status_code:int|None=Field(default=None,ge=100,le=599)
     action:str
     policy_id:uuid.UUID|None=None
+    matched_rule_id:uuid.UUID|None=None
     category:str|None=Field(default=None,max_length=100)
     bytes_uploaded:int=Field(default=0,ge=0,le=9_223_372_036_854_775_807)
     bytes_downloaded:int=Field(default=0,ge=0,le=9_223_372_036_854_775_807)
+    duration_ms:int|None=Field(default=None,ge=0)
     @field_validator("action")
     @classmethod
     def telemetry_action(cls,v):

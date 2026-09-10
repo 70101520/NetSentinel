@@ -17,7 +17,18 @@ $winHttpRule = [Security.AccessControl.RegistryAccessRule]::new('NT AUTHORITY\LO
 $winHttpAcl.RemoveAccessRuleSpecific($winHttpRule)
 $winHttpKey.SetAccessControl($winHttpAcl)
 $winHttpKey.Dispose()
-if ($service) { sc.exe delete NetSentinelAgent | Out-Null }
+@('SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings') | ForEach-Object {
+    $proxyKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($_,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,[Security.AccessControl.RegistryRights]::ChangePermissions)
+    if ($proxyKey) {
+        try {
+            $proxyAcl = $proxyKey.GetAccessControl()
+            $proxyRights = [Security.AccessControl.RegistryRights]::QueryValues -bor [Security.AccessControl.RegistryRights]::SetValue -bor [Security.AccessControl.RegistryRights]::CreateSubKey
+            $proxyRule = [Security.AccessControl.RegistryAccessRule]::new('NT AUTHORITY\LOCAL SERVICE',$proxyRights,'None','None','Allow')
+            $proxyAcl.RemoveAccessRuleSpecific($proxyRule)
+            $proxyKey.SetAccessControl($proxyAcl)
+        } finally { $proxyKey.Dispose() }
+    }
+}if ($service) { sc.exe delete NetSentinelAgent | Out-Null }
 if (Test-Path $install) { Remove-Item -LiteralPath $install -Recurse -Force }
 if ($RemoveIdentity) {
     $data = Join-Path $env:ProgramData 'NetSentinel\Agent'

@@ -20,7 +20,7 @@ async def ensure_group(redis):
 def decode(fields):
     e=json.loads(fields["event"])
     parse_uuid=lambda value: uuid.UUID(value) if value else None
-    return {"id":uuid.UUID(e["event_id"]),"occurred_at":datetime.fromisoformat(e["event_time"].replace("Z","+00:00")),"device_id":parse_uuid(e.get("device_id")),"username":e.get("username"),"hostname":e.get("hostname"),"source_ip":e.get("source_ip"),"destination_ip":e.get("destination_ip"),"domain":e["domain"],"url":e.get("url"),"protocol":e["protocol"],"port":e["port"],"action":e["action"],"policy_id":parse_uuid(e.get("policy_id")),"category":e.get("category"),"bytes_up":e.get("bytes_uploaded",0),"bytes_down":e.get("bytes_downloaded",0),"idempotency_key":e["event_id"]}
+    return {"id":uuid.UUID(e["event_id"]),"occurred_at":datetime.fromisoformat(e["event_time"].replace("Z","+00:00")),"device_id":parse_uuid(e.get("device_id")),"username":e.get("username"),"hostname":e.get("hostname"),"source_ip":e.get("source_ip"),"destination_ip":e.get("destination_ip"),"domain":e["domain"],"url":e.get("url"),"protocol":e["protocol"],"port":e["port"],"method":e.get("method"),"status_code":e.get("status_code"),"action":e["action"],"policy_id":parse_uuid(e.get("policy_id")),"matched_rule_id":parse_uuid(e.get("matched_rule_id")),"category":e.get("category"),"bytes_up":e.get("bytes_uploaded",0),"bytes_down":e.get("bytes_downloaded",0),"duration_ms":e.get("duration_ms"),"idempotency_key":e["event_id"]}
 async def persist(events):
     registry=[{"event_id":e["id"],"event_time":e["occurred_at"]} for e in events]
     async with SessionLocal() as db:

@@ -30,7 +30,7 @@ public sealed record LocalState(
     string? PairingCode = null);
 
 public sealed record ProxyConfiguration(bool Enabled, string? Host, int? Port, string[] Bypass, string Mode, long Version);
-public sealed record ProxyConfigurationEnvelope([property: JsonPropertyName("proxy")] ProxyConfiguration Proxy);
+public sealed record ProxyConfigurationEnvelope([property: JsonPropertyName("proxy")] ProxyConfiguration Proxy, [property: JsonPropertyName("control_mode")] string ControlMode = "MONITOR_ONLY");
 public sealed record ProxyRuntimeStatus(
     [property: JsonPropertyName("desired_version")] long DesiredVersion = 1,
     [property: JsonPropertyName("applied_version")] long? AppliedVersion = null,
@@ -110,4 +110,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.5.0"; }
+public static class AgentVersion { public const string Current = "0.6.0"; }
