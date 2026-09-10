@@ -153,10 +153,10 @@ public sealed class AgentTests : IDisposable
     [Fact]
     public async Task Full_control_defaults_to_management_host_gateway()
     {
-        var json="{\"control_mode\":\"WEB_CONTROLLED\",\"proxy\":{\"enabled\":false,\"host\":null,\"port\":null,\"bypass\":[],\"mode\":\"disabled\",\"version\":3}}";
+        var json="{\"control_mode\":\"WEB_CONTROLLED\",\"proxy\":{\"enabled\":false,\"host\":null,\"port\":null,\"bypass\":[\"192.168.0.0/16\"],\"mode\":\"disabled\",\"version\":3}}";
         var client=new ManagementClient(new HttpClient(new JsonHandler(json)){BaseAddress=new Uri("https://192.168.32.10:8080/")});
         var config=await client.GetConfigurationAsync("credential",default);
-        Assert.NotNull(config);Assert.True(config.Enabled);Assert.Equal("192.168.32.10",config.Host);Assert.Equal(3128,config.Port);
+        Assert.NotNull(config);Assert.True(config.Enabled);Assert.Equal("192.168.32.10",config.Host);Assert.Equal(3128,config.Port);Assert.Contains("192.168.0.0/16",config.Bypass);
     }
     [Fact]
     public async Task Proxy_baseline_is_captured_once_apply_is_versioned_and_disable_restores()

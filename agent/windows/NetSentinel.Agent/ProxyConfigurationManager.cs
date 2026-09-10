@@ -91,7 +91,7 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
 public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPaths paths, ILogger<ProxyConfigurationManager> logger)
 {
     private static readonly Regex Host = new(@"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$", RegexOptions.CultureInvariant);
-    private static readonly Regex Bypass = new(@"^(?:<local>|[A-Za-z0-9*._:\[\]-]+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex Bypass = new(@"^(?:<local>|[A-Za-z0-9*._:\[\]/-]+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     public static void Validate(ProxyConfiguration config)

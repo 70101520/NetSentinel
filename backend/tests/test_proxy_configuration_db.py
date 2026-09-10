@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.main import app
-from app.models import AgentEnrollment, Device, DeviceProxyConfiguration, Permission, Role, User
+from app.models import AgentEnrollment, Device, DeviceProxyConfiguration, Permission, Role, User, WebAllowRule, WebBlockRule, WebCategory, WebTrustedNetwork
 from app.security import issue_token
 from app.service_auth import derive_secret
 
@@ -17,7 +17,7 @@ from app.service_auth import derive_secret
 async def proxy_client():
     await engine.dispose()
     async with SessionLocal() as db:
-        await db.execute(delete(DeviceProxyConfiguration));await db.execute(delete(Device));await db.execute(delete(AgentEnrollment))
+        await db.execute(delete(WebBlockRule));await db.execute(delete(WebAllowRule));await db.execute(delete(WebCategory));await db.execute(delete(WebTrustedNetwork));await db.execute(delete(DeviceProxyConfiguration));await db.execute(delete(Device));await db.execute(delete(AgentEnrollment))
         permission=await db.scalar(select(Permission).where(Permission.code=="agents.manage"))
         if not permission:permission=Permission(code="agents.manage");db.add(permission);await db.flush()
         user=User(email=f"proxy-{uuid.uuid4()}@example.invalid",password_hash="unused")
@@ -86,3 +86,25 @@ async def test_monitor_only_forces_proxy_off_until_admin_enables_web_control(pro
     restored=(await client.get("/api/v1/agents/config",headers=header)).json()
     assert restored["proxy"]["enabled"] is False and restored["proxy"]["version"]>controlled["proxy"]["version"]
     assert (await client.put(f"/api/v1/agents/devices/{second.id}/control-mode",json={"control_mode":"BYPASS"})).status_code==422
+@pytest.mark.asyncio
+async def test_category_allowlist_and_trusted_lan_management(proxy_client):
+    client,_,second,_=proxy_client
+    category=await client.post("/api/v1/web/categories",json={"name":"Social media","description":"Reviewed test category"})
+    assert category.status_code==201
+    category_id=category.json()["id"]
+    blocked=await client.post("/api/v1/web/blocklist",json={"domain":"social.example","category_id":category_id,"include_subdomains":True})
+    assert blocked.status_code==201
+    listed=(await client.get("/api/v1/web/blocklist")).json()
+    assert listed[0]["category_name"]=="Social media"
+    allowed=await client.post("/api/v1/web/allowlist",json={"domain":"safe.social.example","include_subdomains":True})
+    assert allowed.status_code==201
+    trusted=await client.post("/api/v1/web/trusted-networks",json={"name":"Office LAN","cidr":"192.168.32.25/24"})
+    assert trusted.status_code==201 and trusted.json()["cidr"]=="192.168.32.0/24"
+    header={"X-Agent-Credential":f"{second.id}.second-secret"}
+    assert (await client.put("/api/v1/agents/control-mode",json={"control_mode":"WEB_CONTROLLED"},headers=header)).status_code==200
+    config=(await client.get("/api/v1/agents/config",headers=header)).json()
+    assert "192.168.32.0/24" in config["proxy"]["bypass"]
+    assert (await client.delete(f"/api/v1/web/blocklist/{blocked.json()['id']}")).status_code==204
+    assert (await client.delete(f"/api/v1/web/allowlist/{allowed.json()['id']}")).status_code==204
+    assert (await client.delete(f"/api/v1/web/trusted-networks/{trusted.json()['id']}")).status_code==204
+    assert (await client.delete(f"/api/v1/web/categories/{category_id}")).status_code==204

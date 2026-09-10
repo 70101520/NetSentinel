@@ -169,12 +169,34 @@ class PolicyRule(Base):
     domain_pattern: Mapped[str]=mapped_column(String(253))
     expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool]=mapped_column(Boolean, default=True)
+class WebCategory(Base):
+    __tablename__="web_categories"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(100),unique=True)
+    description: Mapped[str|None]=mapped_column(String(300))
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
 class WebBlockRule(Base):
     __tablename__="web_block_rules"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
     domain: Mapped[str]=mapped_column(String(253),unique=True)
+    category_id: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("web_categories.id",ondelete="SET NULL"))
     include_subdomains: Mapped[bool]=mapped_column(Boolean,default=True)
     enabled: Mapped[bool]=mapped_column(Boolean,default=True)
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+class WebAllowRule(Base):
+    __tablename__="web_allow_rules"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    domain: Mapped[str]=mapped_column(String(253),unique=True)
+    include_subdomains: Mapped[bool]=mapped_column(Boolean,default=True)
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+class WebTrustedNetwork(Base):
+    __tablename__="web_trusted_networks"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(100))
+    cidr: Mapped[str]=mapped_column(String(50),unique=True)
     created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
 class AuditEvent(Base):

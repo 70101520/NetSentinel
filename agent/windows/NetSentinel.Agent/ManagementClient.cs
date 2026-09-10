@@ -46,7 +46,8 @@ public sealed class ManagementClient(HttpClient http)
             if (envelope.ControlMode == "WEB_CONTROLLED" && !envelope.Proxy.Enabled)
             {
                 var host = http.BaseAddress?.Host ?? throw new InvalidDataException("Management server host is unavailable");
-                return new ProxyConfiguration(true, host, 3128, ["localhost", "127.0.0.1", host], "configured", envelope.Proxy.Version);
+                var bypass=new[]{"localhost","127.0.0.1",host}.Concat(envelope.Proxy.Bypass).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                return new ProxyConfiguration(true, host, 3128, bypass, "configured", envelope.Proxy.Version);
             }
             return envelope.Proxy;
         }

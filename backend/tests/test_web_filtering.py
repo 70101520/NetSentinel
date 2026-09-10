@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.web_filtering import normalize_domain
+from app.web_filtering import TrustedNetworkInput, domain_is_blocked, normalize_domain
 from app.web_gateway import controlled_device, parse_target
 
 
@@ -34,3 +34,16 @@ class _Db:
 async def test_gateway_matches_any_agent_reported_active_ip():
     device=SimpleNamespace(ip_address="fe80::1",last_heartbeat_ip="172.20.0.1",metadata_={"active_ips":["fe80::1","192.168.32.100"]})
     assert await controlled_device(_Db([device]),"192.168.32.100") is device
+class _SequencedDb:
+    def __init__(self,*groups):self.groups=list(groups)
+    async def scalars(self,_query):return _Scalars(self.groups.pop(0))
+
+@pytest.mark.asyncio
+async def test_whitelist_takes_priority_over_category_block():
+    allowed=SimpleNamespace(domain="safe.example.com",include_subdomains=True)
+    blocked=SimpleNamespace(id="blocked",domain="example.com",include_subdomains=True)
+    assert await domain_is_blocked(_SequencedDb([allowed],[blocked]),"safe.example.com")== (False,None)
+
+def test_trusted_lan_is_canonical_and_public_network_is_rejected():
+    assert TrustedNetworkInput(name="Office",cidr="192.168.32.25/24").cidr=="192.168.32.0/24"
+    with pytest.raises(ValueError):TrustedNetworkInput(name="Public",cidr="8.8.8.0/24")
