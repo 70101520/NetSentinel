@@ -18,10 +18,13 @@ async def proxy_client():
     await engine.dispose()
     async with SessionLocal() as db:
         await db.execute(delete(WebBlockRule));await db.execute(delete(WebAllowRule));await db.execute(delete(WebCategory));await db.execute(delete(WebTrustedNetwork));await db.execute(delete(DeviceProxyConfiguration));await db.execute(delete(Device));await db.execute(delete(AgentEnrollment))
-        permission=await db.scalar(select(Permission).where(Permission.code=="agents.manage"))
-        if not permission:permission=Permission(code="agents.manage");db.add(permission);await db.flush()
+        permissions=[]
+        for code in ("agents.manage","policies.view","policies.manage"):
+            permission=await db.scalar(select(Permission).where(Permission.code==code))
+            if not permission:permission=Permission(code=code);db.add(permission);await db.flush()
+            permissions.append(permission)
         user=User(email=f"proxy-{uuid.uuid4()}@example.invalid",password_hash="unused")
-        role=Role(name=f"proxy-{uuid.uuid4()}");role.permissions.append(permission);user.roles.append(role);db.add(user)
+        role=Role(name=f"proxy-{uuid.uuid4()}");role.permissions.extend(permissions);user.roles.append(role);db.add(user)
         first=Device(device_identifier="proxy-device-1",hostname="PROXY-ONE",credential_hash=derive_secret("first-secret"),enrollment_state="ENROLLED",control_mode="WEB_CONTROLLED")
         second=Device(device_identifier="proxy-device-2",hostname="PROXY-TWO",credential_hash=derive_secret("second-secret"),enrollment_state="ENROLLED")
         revoked=Device(device_identifier="proxy-device-3",hostname="PROXY-REVOKED",credential_hash=derive_secret("revoked-secret"),enrollment_state="REVOKED",credential_revoked_at=datetime.now(timezone.utc))
