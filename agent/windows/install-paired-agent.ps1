@@ -37,7 +37,7 @@ try {
 } finally { $winHttpKey.Dispose() }
 
 
-@('SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings') | ForEach-Object {
+@('SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Edge','SOFTWARE\Policies\Google\Chrome') | ForEach-Object {
     $proxyKey = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($_,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree)
     if (-not $proxyKey) { throw "Machine proxy registry key is unavailable: $_" }
     try {

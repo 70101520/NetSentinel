@@ -7,7 +7,7 @@ using Microsoft.Win32;
 
 namespace NetSentinel.Agent;
 
-public sealed record ProxySnapshot(bool Enabled, string? Proxy, string? Bypass, int? BrowserProxyEnable = null, string? BrowserProxy = null, string? BrowserBypass = null, int? ProxySettingsPerUser = null);
+public sealed record ProxySnapshot(bool Enabled, string? Proxy, string? Bypass, int? BrowserProxyEnable = null, string? BrowserProxy = null, string? BrowserBypass = null, int? ProxySettingsPerUser = null, bool? EdgePolicyPresent = null, string? EdgeProxySettings = null, bool? ChromePolicyPresent = null, string? ChromeProxySettings = null);
 
 public interface IWindowsProxyStore
 {
@@ -26,6 +26,8 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
     [DllImport("wininet.dll", SetLastError = true)] private static extern bool InternetSetOption(IntPtr internet, int option, IntPtr buffer, int length);
     private const string InternetSettings = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings";
     private const string InternetPolicy = @"SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings";
+    private const string EdgePolicy = @"SOFTWARE\Policies\Microsoft\Edge";
+    private const string ChromePolicy = @"SOFTWARE\Policies\Google\Chrome";
 
     public ProxySnapshot Read()
     {
@@ -40,7 +42,11 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
         {
             using var settings = Registry.LocalMachine.OpenSubKey(InternetSettings);
             using var policy = Registry.LocalMachine.OpenSubKey(InternetPolicy);
-            return new(info.AccessType == NamedProxy, Marshal.PtrToStringUni(info.Proxy), Marshal.PtrToStringUni(info.Bypass), settings?.GetValue("ProxyEnable") as int?, settings?.GetValue("ProxyServer") as string, settings?.GetValue("ProxyOverride") as string, policy?.GetValue("ProxySettingsPerUser") as int?);
+            using var edge = Registry.LocalMachine.OpenSubKey(EdgePolicy);
+            using var chrome = Registry.LocalMachine.OpenSubKey(ChromePolicy);
+            var edgeProxy=edge?.GetValue("ProxySettings") as string;
+            var chromeProxy=chrome?.GetValue("ProxySettings") as string;
+            return new(info.AccessType == NamedProxy, Marshal.PtrToStringUni(info.Proxy), Marshal.PtrToStringUni(info.Bypass), settings?.GetValue("ProxyEnable") as int?, settings?.GetValue("ProxyServer") as string, settings?.GetValue("ProxyOverride") as string, policy?.GetValue("ProxySettingsPerUser") as int?, edgeProxy is not null, edgeProxy, chromeProxy is not null, chromeProxy);
         }
         finally { if (info.Proxy != IntPtr.Zero) GlobalFree(info.Proxy); if (info.Bypass != IntPtr.Zero) GlobalFree(info.Bypass); }
     }
@@ -63,12 +69,22 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
             InternetSetOption(IntPtr.Zero, 39, IntPtr.Zero, 0);
             InternetSetOption(IntPtr.Zero, 37, IntPtr.Zero, 0);
         }
+        WriteBrowserPolicy(EdgePolicy,value.EdgePolicyPresent,value.EdgeProxySettings);
+        WriteBrowserPolicy(ChromePolicy,value.ChromePolicyPresent,value.ChromeProxySettings);
         if (!succeeded)
         {
             var actual=Read();
             var matches=actual.Enabled==value.Enabled&&string.Equals(actual.Proxy??"",value.Proxy??"",StringComparison.OrdinalIgnoreCase)&&string.Equals(actual.Bypass??"",value.Bypass??"",StringComparison.OrdinalIgnoreCase);
             if (!matches)throw new Win32Exception(error,"Unable to write WinHTTP proxy configuration");
         }
+    }
+
+    private static void WriteBrowserPolicy(string path,bool? present,string? settings)
+    {
+        if (!present.HasValue)return;
+        using var key=Registry.LocalMachine.CreateSubKey(path,true) ?? throw new IOException($"Unable to open browser proxy policy: {path}");
+        if (present.Value && settings is not null)key.SetValue("ProxySettings",settings,RegistryValueKind.String);
+        else key.DeleteValue("ProxySettings",false);
     }
 }
 
@@ -94,7 +110,9 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         {
             Validate(desired);
             var baseline = await LoadOrCaptureBaselineAsync(ct);
-            var expected = desired.Enabled ? new ProxySnapshot(true, $"{desired.Host}:{desired.Port}", string.Join(';', desired.Bypass), 1, $"{desired.Host}:{desired.Port}", string.Join(';', desired.Bypass), 0) : baseline;
+            var proxy=$"{desired.Host}:{desired.Port}";
+            var browserPolicy=JsonSerializer.Serialize(new Dictionary<string,string>{{"ProxyMode","fixed_servers"},{"ProxyServer",proxy},{"ProxyBypassList",string.Join(',',desired.Bypass)}});
+            var expected = desired.Enabled ? new ProxySnapshot(true, proxy, string.Join(';', desired.Bypass), 1, proxy, string.Join(';', desired.Bypass), 0, true, browserPolicy, true, browserPolicy) : baseline;
             var actual = store.Read();
             var drift = !Equivalent(actual, expected);
             var versionChanged = previous?.AppliedVersion != desired.Version;
@@ -118,7 +136,17 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
 
     private async Task<ProxySnapshot> LoadOrCaptureBaselineAsync(CancellationToken ct)
     {
-        if (File.Exists(paths.ProxyBaselinePath)) return JsonSerializer.Deserialize<ProxySnapshot>(await File.ReadAllTextAsync(paths.ProxyBaselinePath, ct), Json) ?? throw new InvalidDataException("Proxy baseline is invalid");
+        if (File.Exists(paths.ProxyBaselinePath))
+        {
+            var baseline=JsonSerializer.Deserialize<ProxySnapshot>(await File.ReadAllTextAsync(paths.ProxyBaselinePath,ct),Json) ?? throw new InvalidDataException("Proxy baseline is invalid");
+            if (!baseline.EdgePolicyPresent.HasValue || !baseline.ChromePolicyPresent.HasValue)
+            {
+                var current=store.Read();
+                baseline=baseline with { EdgePolicyPresent=current.EdgePolicyPresent,EdgeProxySettings=current.EdgeProxySettings,ChromePolicyPresent=current.ChromePolicyPresent,ChromeProxySettings=current.ChromeProxySettings };
+                await File.WriteAllTextAsync(paths.ProxyBaselinePath,JsonSerializer.Serialize(baseline,Json),ct);
+            }
+            return baseline;
+        }
         var baseline = store.Read();
         var temporary = paths.ProxyBaselinePath + ".tmp";
         await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(baseline, Json), ct);
@@ -128,7 +156,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         return baseline;
     }
 
-    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) && left.BrowserProxyEnable == right.BrowserProxyEnable && string.Equals(left.BrowserProxy ?? "", right.BrowserProxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.BrowserBypass ?? "", right.BrowserBypass ?? "", StringComparison.OrdinalIgnoreCase) && left.ProxySettingsPerUser == right.ProxySettingsPerUser;
+    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) && left.BrowserProxyEnable == right.BrowserProxyEnable && string.Equals(left.BrowserProxy ?? "", right.BrowserProxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.BrowserBypass ?? "", right.BrowserBypass ?? "", StringComparison.OrdinalIgnoreCase) && left.ProxySettingsPerUser == right.ProxySettingsPerUser && left.EdgePolicyPresent == right.EdgePolicyPresent && string.Equals(left.EdgeProxySettings ?? "",right.EdgeProxySettings ?? "",StringComparison.Ordinal) && left.ChromePolicyPresent == right.ChromePolicyPresent && string.Equals(left.ChromeProxySettings ?? "",right.ChromeProxySettings ?? "",StringComparison.Ordinal);
 
     public static async Task RestoreBaselineAsync(IWindowsProxyStore store, AgentPaths paths, CancellationToken ct)
     {

@@ -2,15 +2,16 @@ import asyncio
 import contextlib
 import ipaddress
 import uuid
-from datetime import datetime,timezone
-from urllib.parse import urlsplit,urlunsplit
+from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit, urlunsplit
 
 import structlog
-from sqlalchemy import or_,select,update
+from sqlalchemy import select, update
 
-from app.db import SessionLocal,engine
-from app.models import Device,ProxyEvent
-from app.web_filtering import domain_is_blocked,normalize_domain
+from app.config import settings
+from app.db import SessionLocal, engine
+from app.models import Device, ProxyEvent
+from app.web_filtering import domain_is_blocked, normalize_domain
 
 log=structlog.get_logger("web_gateway")
 MAX_HEADER_BYTES=65_536
@@ -20,14 +21,20 @@ IDLE_TIMEOUT_SECONDS=120
 
 def client_ip(peer)->str:
     value=str(peer[0]) if peer else ""
-    if value.startswith("::ffff:"):value=value[7:]
+    value = value.removeprefix("::ffff:")
     return value
 
 
 async def controlled_device(db,source_ip:str):
     try:address=str(ipaddress.ip_address(source_ip))
     except ValueError:return None
-    return await db.scalar(select(Device).where(Device.enrollment_state=="ENROLLED",Device.control_mode=="WEB_CONTROLLED",or_(Device.ip_address==address,Device.last_heartbeat_ip==address)))
+    cutoff=datetime.now(UTC)-timedelta(seconds=settings.agent_heartbeat_timeout_seconds)
+    devices=(await db.scalars(select(Device).where(Device.enrollment_state=="ENROLLED",Device.control_mode=="WEB_CONTROLLED",Device.current_status=="ONLINE",Device.last_heartbeat>=cutoff).order_by(Device.last_heartbeat.desc()))).all()
+    for device in devices:
+        observed={str(value) for value in (device.ip_address,device.last_heartbeat_ip) if value}
+        observed.update(str(value) for value in (device.metadata_ or {}).get("active_ips",[]) if value)
+        if address in observed:return device
+    return None
 
 
 def parse_target(request_line:str):
@@ -52,7 +59,7 @@ def parse_target(request_line:str):
 
 
 async def write_event(device,source_ip,domain,url,protocol,port,action,rule_id=None):
-    event_id=uuid.uuid4();occurred_at=datetime.now(timezone.utc)
+    event_id=uuid.uuid4();occurred_at=datetime.now(UTC)
     async with SessionLocal() as db:
         db.add(ProxyEvent(id=event_id,occurred_at=occurred_at,device_id=device.id,username=device.username,hostname=device.hostname,source_ip=source_ip,domain=domain,url=url,protocol=protocol,port=port,action=action,matched_rule_id=rule_id,bytes_up=0,bytes_down=0,idempotency_key=str(event_id)))
         await db.commit()
@@ -71,7 +78,7 @@ async def relay(reader,writer)->int:
     try:
         while data:=await asyncio.wait_for(reader.read(65_536),IDLE_TIMEOUT_SECONDS):
             writer.write(data);await writer.drain();total+=len(data)
-    except (asyncio.TimeoutError,ConnectionError,OSError):pass
+    except (TimeoutError, ConnectionError, OSError):pass
     finally:
         with contextlib.suppress(Exception):writer.close()
     return total
@@ -92,6 +99,7 @@ async def handle(reader:asyncio.StreamReader,writer:asyncio.StreamWriter):
         async with SessionLocal() as db:
             device=await controlled_device(db,source)
             if not device:
+                log.warning("gateway_device_not_recognized",source_ip=source)
                 await reject(writer,403,"NetSentinel Full control enrollment required");return
             blocked,rule_id=await domain_is_blocked(db,domain)
         if blocked:
@@ -116,7 +124,7 @@ async def handle(reader:asyncio.StreamReader,writer:asyncio.StreamWriter):
             up=len(outbound)+(results[0] if isinstance(results[0],int) else 0);down=results[1] if isinstance(results[1],int) else 0
     except (asyncio.IncompleteReadError,asyncio.LimitOverrunError,ValueError,UnicodeError):
         with contextlib.suppress(Exception):await reject(writer,400,"Invalid proxy request")
-    except (asyncio.TimeoutError,ConnectionError,OSError):
+    except (TimeoutError, ConnectionError, OSError):
         with contextlib.suppress(Exception):await reject(writer,502,"Destination unavailable")
     except Exception as exc:
         log.error("gateway_request_failed",error_type=type(exc).__name__,source_ip=source)

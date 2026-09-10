@@ -17,7 +17,7 @@ $winHttpRule = [Security.AccessControl.RegistryAccessRule]::new('NT AUTHORITY\LO
 $winHttpAcl.RemoveAccessRuleSpecific($winHttpRule)
 $winHttpKey.SetAccessControl($winHttpAcl)
 $winHttpKey.Dispose()
-@('SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings') | ForEach-Object {
+@('SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings','SOFTWARE\Policies\Microsoft\Edge','SOFTWARE\Policies\Google\Chrome') | ForEach-Object {
     $proxyKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($_,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,[Security.AccessControl.RegistryRights]::ChangePermissions)
     if ($proxyKey) {
         try {
