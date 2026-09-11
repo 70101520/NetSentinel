@@ -162,6 +162,22 @@ async def test_maintenance_password_and_remote_command_are_verifier_only_and_sig
 
 
 @pytest.mark.asyncio
+async def test_portal_installer_upload_validates_and_downloads_authenticated_artifact(client,tmp_path):
+    previous=settings.agent_installer_path;settings.agent_installer_path=str(tmp_path/"NetSentinel-Agent-Setup.exe")
+    try:
+        invalid=await client.put("/api/v1/agents/installer",files={"file":("bad.exe",b"not-an-executable","application/octet-stream")})
+        assert invalid.status_code==422
+        content=b"MZ"+b"signed-installer-test"*64
+        uploaded=await client.put("/api/v1/agents/installer",files={"file":("NetSentinel-Agent-Setup-0.9.0.exe",content,"application/octet-stream")})
+        assert uploaded.status_code==200 and uploaded.json()["size"]==len(content) and len(uploaded.json()["sha256"])==64
+        assert (await client.get("/api/v1/agents/installer/status")).json()["available"] is True
+        downloaded=await client.get("/api/v1/agents/installer")
+        assert downloaded.status_code==200 and downloaded.content==content
+    finally:
+        settings.agent_installer_path=previous
+
+
+@pytest.mark.asyncio
 async def test_offline_reconnect_pagination_and_filters(client):
     created = (await client.post("/api/v1/agents/enrollment-tokens?max_uses=3&group=Remote&department=Ops")).json()
     identities = []

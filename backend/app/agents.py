@@ -1,8 +1,11 @@
 import secrets
 import uuid
+import hashlib
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +19,44 @@ from app.security import require
 from app.service_auth import derive_secret
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+def file_sha256(path:Path)->str:
+    digest=hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk:=stream.read(1024*1024):digest.update(chunk)
+    return digest.hexdigest()
+
+@router.get("/installer/status")
+async def installer_status(_:User=Depends(require("agents.manage"))):
+    path=Path(settings.agent_installer_path)
+    if not path.is_file():return {"available":False}
+    return {"available":True,"filename":path.name,"size":path.stat().st_size,"sha256":file_sha256(path)}
+
+@router.get("/installer")
+async def download_installer(_:User=Depends(require("agents.manage"))):
+    path=Path(settings.agent_installer_path)
+    if not path.is_file():raise HTTPException(404,"Agent installer has not been uploaded")
+    return FileResponse(path,media_type="application/vnd.microsoft.portable-executable",filename=path.name)
+
+@router.put("/installer")
+async def upload_installer(request:Request,file:UploadFile=File(...),db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    if not file.filename or not file.filename.lower().endswith(".exe"):raise HTTPException(422,"Only a Windows .exe installer is accepted")
+    path=Path(settings.agent_installer_path);path.parent.mkdir(parents=True,exist_ok=True);temporary=path.with_suffix(".upload")
+    size=0;digest=hashlib.sha256()
+    try:
+        with temporary.open("wb") as output:
+            while chunk:=await file.read(1024*1024):
+                size+=len(chunk)
+                if size>settings.agent_installer_max_bytes:raise HTTPException(413,"Agent installer is too large")
+                digest.update(chunk);output.write(chunk)
+        with temporary.open("rb") as uploaded:
+            if uploaded.read(2)!=b"MZ":raise HTTPException(422,"Uploaded file is not a Windows executable")
+        temporary.replace(path)
+    finally:
+        await file.close()
+        if temporary.exists():temporary.unlink()
+    await record(db,request,user,"agent.installer.upload","agent_installer",path.name,"success",new={"size":size,"sha256":digest.hexdigest()});await db.commit()
+    return {"available":True,"filename":path.name,"size":size,"sha256":digest.hexdigest()}
 
 
 async def enforce_enrollment_limit(request: Request, token_digest: str) -> None:

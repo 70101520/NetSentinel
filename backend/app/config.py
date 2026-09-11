@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     agent_enrollment_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     agent_offline_evaluator_interval_seconds: int = Field(default=15, ge=1, le=300)
     agent_offline_evaluator_batch_size: int = Field(default=500, ge=1, le=5000)
+    agent_installer_path: str = "/data/agent-installer/NetSentinel-Agent-Setup.exe"
+    agent_installer_max_bytes: int = Field(default=268_435_456, ge=1_048_576, le=536_870_912)
     cors_origins: str = ""
     log_level: str = "INFO"
     db_pool_size: int = Field(default=10, ge=2, le=100)

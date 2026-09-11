@@ -1,0 +1,13 @@
+.agentHeadActions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+.agentHeadActions .secondaryButton{border:1px solid #d5dee6;border-radius:6px;background:#fff;padding:8px 11px;color:#344457;font:inherit;font-size:12px;cursor:pointer}
+.agentHeadActions label{display:inline-flex}.agentHeadActions input[type=file]{display:none}
+.agentManagementDialog{width:min(800px,100%)}
+.managementGrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.managementGrid form{display:grid;align-content:start;gap:10px;padding:16px;border:1px solid #dfe6ec;border-radius:8px}
+.managementGrid h3,.managementGrid p{margin:0}.managementGrid label{display:grid;gap:5px;font-size:11px;font-weight:600}
+.managementGrid input{border:1px solid #ccd7e0;border-radius:6px;padding:9px}
+.managementGrid button{justify-self:start;border:0;border-radius:6px;background:#128765;color:#fff;padding:8px 11px;cursor:pointer}
+.managementGrid button:disabled{cursor:not-allowed;opacity:.5}.managementGrid .dangerZone{border-color:#eccbd0;background:#fffafb}.managementGrid .dangerZone button{background:#ae3442}
+.recoveryCode{display:grid;gap:6px;margin-top:14px;padding:13px;border:1px solid #efd6a8;border-radius:7px;background:#fff9ef}
+.recoveryCode code{user-select:all;font-size:14px;word-break:break-all}.recoveryCode span{font-size:11px;color:#725a32}
+@media(max-width:760px){.managementGrid{grid-template-columns:1fr}.agentHeadActions{justify-content:flex-start}}

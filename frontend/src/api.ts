@@ -28,3 +28,14 @@ export async function api<T>(path:string,init:RequestInit={}){
   if(!contentType.includes('application/json'))return undefined as T;
   return response.json() as Promise<T>;
 }
+
+async function authorizedResponse(path:string,init:RequestInit={}){
+  const token=storedToken();if(!token||!tokenIsCurrent(token)){clearSession();throw new AuthenticationRequired('Your session has expired. Please sign in again.')}
+  const response=await fetch(path,{...init,headers:{...init.headers,Authorization:`Bearer ${token}`}});
+  if(response.status===401){clearSession();throw new AuthenticationRequired('Your session has expired. Please sign in again.')}
+  if(!response.ok){let message='The server could not complete this request.';try{const problem=await response.json();if(typeof problem.detail==='string')message=problem.detail}catch{}throw new ApiFailure(response.status,message)}
+  return response;
+}
+
+export async function uploadAgentInstaller(file:File){const body=new FormData();body.append('file',file);const response=await authorizedResponse('/api/v1/agents/installer',{method:'PUT',body});return response.json()}
+export async function downloadAgentInstaller(){const response=await authorizedResponse('/api/v1/agents/installer');const blob=await response.blob();const disposition=response.headers.get('content-disposition')||'';const match=/filename="?([^";]+)"?/i.exec(disposition);const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=match?.[1]||'NetSentinel-Agent-Setup.exe';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(link.href)}

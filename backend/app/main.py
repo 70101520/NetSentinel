@@ -53,7 +53,7 @@ async def database_unavailable(request:Request,exc:Exception):
 @app.middleware("http")
 async def request_context(request:Request,call_next):
     length=request.headers.get("content-length")
-    limit=settings.telemetry_max_body_bytes if request.url.path=="/api/v1/telemetry/events" else settings.agent_max_body_bytes if request.url.path.startswith("/api/v1/agents/") else None
+    limit=settings.agent_installer_max_bytes if request.url.path=="/api/v1/agents/installer" and request.method=="PUT" else settings.telemetry_max_body_bytes if request.url.path=="/api/v1/telemetry/events" else settings.agent_max_body_bytes if request.url.path.startswith("/api/v1/agents/") else None
     if limit and length and length.isdigit() and int(length)>limit:
         from fastapi.responses import JSONResponse
         return JSONResponse({"detail":"Request body too large"},status_code=413)
