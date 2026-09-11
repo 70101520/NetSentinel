@@ -100,7 +100,7 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         if (config.Mode is not ("disabled" or "configured")) throw new InvalidDataException("Proxy configuration mode is unsupported");
         if (!config.Enabled && config.Mode != "disabled") throw new InvalidDataException("Disabled proxy configuration has an inconsistent mode");
         if (config.Enabled && (config.Mode != "configured" || string.IsNullOrWhiteSpace(config.Host) || !Host.IsMatch(config.Host) || config.Port is null or < 1 or > 65535)) throw new InvalidDataException("Enabled proxy configuration is invalid");
-        if (config.Bypass.Length > 64 || config.Bypass.Any(x => x.Length > 253 || !Bypass.IsMatch(x))) throw new InvalidDataException("Proxy bypass configuration is invalid");
+        if (config.Bypass.Length > 256 || config.Bypass.Any(x => x.Length > 253 || !Bypass.IsMatch(x))) throw new InvalidDataException("Proxy bypass configuration is invalid");
     }
 
     public async Task<ProxyRuntimeStatus> ReconcileAsync(ProxyConfiguration desired, ProxyRuntimeStatus? previous, CancellationToken ct)

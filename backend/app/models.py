@@ -199,6 +199,36 @@ class WebTrustedNetwork(Base):
     cidr: Mapped[str]=mapped_column(String(50),unique=True)
     created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+class WebDirectBypassRule(Base):
+    __tablename__="web_direct_bypass_rules"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    domain: Mapped[str]=mapped_column(String(253),unique=True)
+    include_subdomains: Mapped[bool]=mapped_column(Boolean,default=True)
+    description: Mapped[str|None]=mapped_column(String(200))
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+class WebPolicyGroup(Base):
+    __tablename__="web_policy_groups"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    name: Mapped[str]=mapped_column(String(100),unique=True)
+    description: Mapped[str|None]=mapped_column(String(300))
+    default_action: Mapped[str]=mapped_column(String(10),default="ALLOW")
+    enabled: Mapped[bool]=mapped_column(Boolean,default=True)
+    created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+class WebPolicyGroupCategory(Base):
+    __tablename__="web_policy_group_categories"
+    __table_args__=(UniqueConstraint("group_id","category_id",name="uq_web_policy_group_category"),)
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    group_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("web_policy_groups.id",ondelete="CASCADE"))
+    category_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("web_categories.id",ondelete="CASCADE"))
+    action: Mapped[str]=mapped_column(String(10),default="ALLOW")
+class DeviceWebPolicyGroup(Base):
+    __tablename__="device_web_policy_groups"
+    device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE"),primary_key=True)
+    group_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("web_policy_groups.id",ondelete="CASCADE"),index=True)
+    assigned_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    assigned_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
 class AuditEvent(Base):
     __tablename__="audit_events"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

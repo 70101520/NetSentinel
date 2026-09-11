@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.main import app
-from app.models import AgentEnrollment, Device, DeviceProxyConfiguration, Permission, Role, User, WebAllowRule, WebBlockRule, WebCategory, WebTrustedNetwork
+from app.models import AgentEnrollment, Device, DeviceProxyConfiguration, DeviceWebPolicyGroup, Permission, Role, User, WebAllowRule, WebBlockRule, WebCategory, WebDirectBypassRule, WebPolicyGroup, WebPolicyGroupCategory, WebTrustedNetwork
 from app.security import issue_token
 from app.service_auth import derive_secret
 
@@ -17,7 +17,7 @@ from app.service_auth import derive_secret
 async def proxy_client():
     await engine.dispose()
     async with SessionLocal() as db:
-        await db.execute(delete(WebBlockRule));await db.execute(delete(WebAllowRule));await db.execute(delete(WebCategory));await db.execute(delete(WebTrustedNetwork));await db.execute(delete(DeviceProxyConfiguration));await db.execute(delete(Device));await db.execute(delete(AgentEnrollment))
+        await db.execute(delete(DeviceWebPolicyGroup));await db.execute(delete(WebPolicyGroupCategory));await db.execute(delete(WebPolicyGroup));await db.execute(delete(WebDirectBypassRule));await db.execute(delete(WebBlockRule));await db.execute(delete(WebAllowRule));await db.execute(delete(WebCategory));await db.execute(delete(WebTrustedNetwork));await db.execute(delete(DeviceProxyConfiguration));await db.execute(delete(Device));await db.execute(delete(AgentEnrollment))
         permissions=[]
         for code in ("agents.manage","policies.view","policies.manage"):
             permission=await db.scalar(select(Permission).where(Permission.code==code))
@@ -103,11 +103,15 @@ async def test_category_allowlist_and_trusted_lan_management(proxy_client):
     assert allowed.status_code==201
     trusted=await client.post("/api/v1/web/trusted-networks",json={"name":"Office LAN","cidr":"192.168.32.25/24"})
     assert trusted.status_code==201 and trusted.json()["cidr"]=="192.168.32.0/24"
+    direct=await client.post("/api/v1/web/direct-bypass",json={"domain":"dialer.example","include_subdomains":True})
+    assert direct.status_code==201
     header={"X-Agent-Credential":f"{second.id}.second-secret"}
     assert (await client.put("/api/v1/agents/control-mode",json={"control_mode":"WEB_CONTROLLED"},headers=header)).status_code==200
     config=(await client.get("/api/v1/agents/config",headers=header)).json()
     assert "192.168.32.0/24" in config["proxy"]["bypass"]
+    assert "dialer.example" in config["proxy"]["bypass"] and "*.dialer.example" in config["proxy"]["bypass"]
     assert (await client.delete(f"/api/v1/web/blocklist/{blocked.json()['id']}")).status_code==204
     assert (await client.delete(f"/api/v1/web/allowlist/{allowed.json()['id']}")).status_code==204
     assert (await client.delete(f"/api/v1/web/trusted-networks/{trusted.json()['id']}")).status_code==204
+    assert (await client.delete(f"/api/v1/web/direct-bypass/{direct.json()['id']}")).status_code==204
     assert (await client.delete(f"/api/v1/web/categories/{category_id}")).status_code==204

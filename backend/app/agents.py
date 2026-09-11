@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record
 from app.config import settings
 from app.db import get_db
-from app.models import AgentEnrollment, AgentPairingRequest, AssetMetricSample, Device, DeviceProxyConfiguration, DeviceStateTransition, User, WebTrustedNetwork
+from app.models import AgentEnrollment, AgentPairingRequest, AssetMetricSample, Device, DeviceProxyConfiguration, DeviceStateTransition, User, WebDirectBypassRule, WebTrustedNetwork
 from app.schemas import DeviceAssignment, DeviceControlModeInput, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
 from app.security import require
 from app.service_auth import derive_secret
@@ -172,7 +172,12 @@ async def agent_config(db: AsyncSession = Depends(get_db), device: Device = Depe
     payload=proxy_payload(await db.get(DeviceProxyConfiguration,device.id),force_disabled=device.control_mode!="WEB_CONTROLLED")
     if device.control_mode=="WEB_CONTROLLED":
         trusted=(await db.scalars(select(WebTrustedNetwork.cidr).order_by(WebTrustedNetwork.cidr))).all()
-        payload["proxy"]["bypass"]=list(dict.fromkeys([*payload["proxy"]["bypass"],*trusted]))
+        rules=(await db.scalars(select(WebDirectBypassRule).order_by(WebDirectBypassRule.domain))).all()
+        domains=[]
+        for rule in rules:
+            domains.append(rule.domain)
+            if rule.include_subdomains:domains.append("*."+rule.domain)
+        payload["proxy"]["bypass"]=list(dict.fromkeys([*payload["proxy"]["bypass"],*trusted,*domains]))
     return {"control_mode":device.control_mode,**payload}
 
 @router.put("/control-mode")

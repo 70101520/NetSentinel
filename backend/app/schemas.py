@@ -159,7 +159,7 @@ class ProxyConfigurationInput(BaseModel):
     enabled:bool=False
     host:str|None=Field(None,max_length=253)
     port:int|None=Field(None,ge=1,le=65535)
-    bypass:list[str]=Field(default_factory=list,max_length=64)
+    bypass:list[str]=Field(default_factory=list,max_length=256)
     mode:str="disabled"
 
     @field_validator("host")

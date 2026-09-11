@@ -1,22 +1,35 @@
 import asyncio
 import contextlib
 import ipaddress
+import json
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select
+from redis.asyncio import Redis
 
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.models import Device, ProxyEvent
-from app.web_filtering import domain_is_blocked, normalize_domain
+from app.web_filtering import compile_web_policy, evaluate_compiled_policy, normalize_domain
 
 log=structlog.get_logger("web_gateway")
 MAX_HEADER_BYTES=65_536
 CONNECT_TIMEOUT_SECONDS=15
 IDLE_TIMEOUT_SECONDS=120
+DEVICE_CACHE_TTL_SECONDS=2
+_device_snapshot={}
+_device_snapshot_loaded_at=0.0
+_device_lock=asyncio.Lock()
+_policy_snapshot=None
+_policy_version=None
+_policy_checked_at=0.0
+_policy_loaded_at=0.0
+_policy_lock=asyncio.Lock()
+_redis=None
 
 
 def client_ip(peer)->str:
@@ -26,15 +39,36 @@ def client_ip(peer)->str:
 
 
 async def controlled_device(db,source_ip:str):
+    global _device_snapshot,_device_snapshot_loaded_at
     try:address=str(ipaddress.ip_address(source_ip))
     except ValueError:return None
-    cutoff=datetime.now(UTC)-timedelta(seconds=settings.agent_heartbeat_timeout_seconds)
-    devices=(await db.scalars(select(Device).where(Device.enrollment_state=="ENROLLED",Device.control_mode=="WEB_CONTROLLED",Device.current_status=="ONLINE",Device.last_heartbeat>=cutoff).order_by(Device.last_heartbeat.desc()))).all()
-    for device in devices:
-        observed={str(value) for value in (device.ip_address,device.last_heartbeat_ip) if value}
-        observed.update(str(value) for value in (device.metadata_ or {}).get("active_ips",[]) if value)
-        if address in observed:return device
-    return None
+    now=time.monotonic()
+    if now-_device_snapshot_loaded_at>=DEVICE_CACHE_TTL_SECONDS:
+        async with _device_lock:
+            now=time.monotonic()
+            if now-_device_snapshot_loaded_at>=DEVICE_CACHE_TTL_SECONDS:
+                cutoff=datetime.now(UTC)-timedelta(seconds=settings.agent_heartbeat_timeout_seconds)
+                devices=(await db.scalars(select(Device).where(Device.enrollment_state=="ENROLLED",Device.control_mode=="WEB_CONTROLLED",Device.current_status=="ONLINE",Device.last_heartbeat>=cutoff).order_by(Device.last_heartbeat.desc()))).all()
+                snapshot={}
+                for device in devices:
+                    observed={str(value) for value in (device.ip_address,device.last_heartbeat_ip) if value}
+                    observed.update(str(value) for value in (device.metadata_ or {}).get("active_ips",[]) if value)
+                    for value in observed:snapshot.setdefault(value,device)
+                _device_snapshot=snapshot;_device_snapshot_loaded_at=now
+    return _device_snapshot.get(address)
+
+async def policy_decision(db,domain,device_id):
+    global _policy_snapshot,_policy_version,_policy_checked_at,_policy_loaded_at
+    now=time.monotonic()
+    if _policy_snapshot is not None and now-_policy_checked_at<1:return evaluate_compiled_policy(_policy_snapshot,domain,device_id)
+    async with _policy_lock:
+        now=time.monotonic();version=None
+        if _redis:
+            with contextlib.suppress(Exception):version=await _redis.get("netsentinel:web-policy-version")
+        _policy_checked_at=now
+        if _policy_snapshot is None or version!=_policy_version or now-_policy_loaded_at>=30:
+            _policy_snapshot=await compile_web_policy(db);_policy_version=version;_policy_loaded_at=now
+    return evaluate_compiled_policy(_policy_snapshot,domain,device_id)
 
 
 def parse_target(request_line:str):
@@ -60,17 +94,17 @@ def parse_target(request_line:str):
 
 async def write_event(device,source_ip,domain,url,protocol,port,action,rule_id=None):
     event_id=uuid.uuid4();occurred_at=datetime.now(UTC)
-    async with SessionLocal() as db:
-        db.add(ProxyEvent(id=event_id,occurred_at=occurred_at,device_id=device.id,username=device.username,hostname=device.hostname,source_ip=source_ip,domain=domain,url=url,protocol=protocol,port=port,action=action,matched_rule_id=rule_id,bytes_up=0,bytes_down=0,idempotency_key=str(event_id)))
-        await db.commit()
+    payload={"event_id":str(event_id),"event_time":occurred_at.isoformat(),"device_id":str(device.id),"username":device.username,"hostname":device.hostname,"source_ip":source_ip,"destination_ip":None,"domain":domain,"url":url,"protocol":protocol,"port":port,"method":None,"status_code":None,"action":action,"policy_id":None,"matched_rule_id":str(rule_id) if rule_id else None,"category":None,"bytes_uploaded":0,"bytes_downloaded":0,"duration_ms":None}
+    try:await _redis.xadd(settings.telemetry_stream,{"event":json.dumps(payload,separators=(",",":"))})
+    except Exception:
+        async with SessionLocal() as db:
+            db.add(ProxyEvent(id=event_id,occurred_at=occurred_at,device_id=device.id,username=device.username,hostname=device.hostname,source_ip=source_ip,domain=domain,url=url,protocol=protocol,port=port,action=action,matched_rule_id=rule_id,bytes_up=0,bytes_down=0,idempotency_key=str(event_id)));await db.commit()
     return event_id,occurred_at
 
 
 async def update_event(event_ref,bytes_up,bytes_down):
-    event_id,occurred_at=event_ref
-    async with SessionLocal() as db:
-        await db.execute(update(ProxyEvent).where(ProxyEvent.id==event_id,ProxyEvent.occurred_at==occurred_at).values(bytes_up=bytes_up,bytes_down=bytes_down))
-        await db.commit()
+    if _redis:
+        with contextlib.suppress(Exception):await _redis.incrby("netsentinel:metrics:web_gateway_bytes",bytes_up+bytes_down)
 
 
 async def relay(reader,writer)->int:
@@ -101,7 +135,7 @@ async def handle(reader:asyncio.StreamReader,writer:asyncio.StreamWriter):
             if not device:
                 log.warning("gateway_device_not_recognized",source_ip=source)
                 await reject(writer,403,"NetSentinel Full control enrollment required");return
-            blocked,rule_id=await domain_is_blocked(db,domain)
+            blocked,rule_id=await policy_decision(db,domain,device.id)
         if blocked:
             action="BLOCK";event_ref=await write_event(device,source,domain,url,protocol,port,action,rule_id);await reject(writer,403,"Blocked by NetSentinel policy");return
         event_ref=await write_event(device,source,domain,url,protocol,port,action,rule_id)
@@ -136,9 +170,13 @@ async def handle(reader:asyncio.StreamReader,writer:asyncio.StreamWriter):
 
 
 async def main():
+    global _redis
+    _redis=Redis.from_url(settings.redis_url,decode_responses=True)
     server=await asyncio.start_server(handle,"0.0.0.0",3128,limit=MAX_HEADER_BYTES+1)
     log.info("web_gateway_started",port=3128)
-    async with server:await server.serve_forever()
+    try:
+        async with server:await server.serve_forever()
+    finally:await _redis.aclose()
 
 
 if __name__=="__main__":

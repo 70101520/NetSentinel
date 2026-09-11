@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.web_filtering import TrustedNetworkInput, domain_is_blocked, normalize_domain
+from app.web_filtering import CompiledWebPolicy, TrustedNetworkInput, domain_is_blocked, evaluate_compiled_policy, normalize_domain
 from app.web_gateway import controlled_device, parse_target
 
 
@@ -47,3 +47,11 @@ async def test_whitelist_takes_priority_over_category_block():
 def test_trusted_lan_is_canonical_and_public_network_is_rejected():
     assert TrustedNetworkInput(name="Office",cidr="192.168.32.25/24").cidr=="192.168.32.0/24"
     with pytest.raises(ValueError):TrustedNetworkInput(name="Public",cidr="8.8.8.0/24")
+
+def test_compiled_policy_applies_whitelist_and_per_group_category_action():
+    device_id="device";group_id="group";category_id="social";rule_id="rule"
+    policy=CompiledWebPolicy(frozenset(),frozenset({"trusted.example"}),{},
+        {"social.example":(rule_id,category_id)},{device_id:group_id},{group_id:(True,"ALLOW")},{(group_id,category_id):"BLOCK"})
+    assert evaluate_compiled_policy(policy,"app.trusted.example",device_id)==(False,None)
+    assert evaluate_compiled_policy(policy,"www.social.example",device_id)==(True,rule_id)
+    assert evaluate_compiled_policy(policy,"www.social.example","unassigned")== (True,rule_id)

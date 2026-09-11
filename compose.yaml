@@ -66,6 +66,7 @@ services:
     command: [python, -m, app.web_gateway]
     depends_on:
       postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
     ports: ['3128:3128']
     healthcheck:
       test: [CMD, python, -c, "import socket; socket.create_connection(('localhost', 3128), 2).close()"]
