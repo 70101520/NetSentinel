@@ -7,7 +7,25 @@ using Microsoft.Win32;
 
 namespace NetSentinel.Agent;
 
-public sealed record ProxySnapshot(bool Enabled, string? Proxy, string? Bypass, int? BrowserProxyEnable = null, string? BrowserProxy = null, string? BrowserBypass = null, int? ProxySettingsPerUser = null, bool? EdgePolicyPresent = null, string? EdgeProxySettings = null, bool? ChromePolicyPresent = null, string? ChromeProxySettings = null);
+public sealed record ProxySnapshot(
+    bool Enabled,
+    string? Proxy,
+    string? Bypass,
+    int? BrowserProxyEnable = null,
+    string? BrowserProxy = null,
+    string? BrowserBypass = null,
+    int? ProxySettingsPerUser = null,
+    bool? EdgePolicyPresent = null,
+    string? EdgeProxySettings = null,
+    bool? ChromePolicyPresent = null,
+    string? ChromeProxySettings = null,
+    bool? FirefoxPolicyPresent = null,
+    string? FirefoxMode = null,
+    int? FirefoxLocked = null,
+    string? FirefoxHttpProxy = null,
+    int? FirefoxUseHttpProxyForAllProtocols = null,
+    string? FirefoxSslProxy = null,
+    string? FirefoxPassthrough = null);
 
 public interface IWindowsProxyStore
 {
@@ -28,6 +46,7 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
     private const string InternetPolicy = @"SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings";
     private const string EdgePolicy = @"SOFTWARE\Policies\Microsoft\Edge";
     private const string ChromePolicy = @"SOFTWARE\Policies\Google\Chrome";
+    private const string FirefoxProxyPolicy = @"SOFTWARE\Policies\Mozilla\Firefox\Proxy";
 
     public ProxySnapshot Read()
     {
@@ -44,9 +63,37 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
             using var policy = Registry.LocalMachine.OpenSubKey(InternetPolicy);
             using var edge = Registry.LocalMachine.OpenSubKey(EdgePolicy);
             using var chrome = Registry.LocalMachine.OpenSubKey(ChromePolicy);
+            using var firefox = Registry.LocalMachine.OpenSubKey(FirefoxProxyPolicy);
             var edgeProxy=edge?.GetValue("ProxySettings") as string;
             var chromeProxy=chrome?.GetValue("ProxySettings") as string;
-            return new(info.AccessType == NamedProxy, Marshal.PtrToStringUni(info.Proxy), Marshal.PtrToStringUni(info.Bypass), settings?.GetValue("ProxyEnable") as int?, settings?.GetValue("ProxyServer") as string, settings?.GetValue("ProxyOverride") as string, policy?.GetValue("ProxySettingsPerUser") as int?, edgeProxy is not null, edgeProxy, chromeProxy is not null, chromeProxy);
+            var firefoxMode = firefox?.GetValue("Mode") as string;
+            var firefoxLocked = firefox?.GetValue("Locked") as int?;
+            var firefoxHttpProxy = firefox?.GetValue("HTTPProxy") as string;
+            var firefoxUseAllProtocols = firefox?.GetValue("UseHTTPProxyForAllProtocols") as int?;
+            var firefoxSslProxy = firefox?.GetValue("SSLProxy") as string;
+            var firefoxPassthrough = firefox?.GetValue("Passthrough") as string;
+            var firefoxPolicyPresent = firefoxMode is not null || firefoxLocked.HasValue ||
+                firefoxHttpProxy is not null || firefoxUseAllProtocols.HasValue ||
+                firefoxSslProxy is not null || firefoxPassthrough is not null;
+            return new(
+                info.AccessType == NamedProxy,
+                Marshal.PtrToStringUni(info.Proxy),
+                Marshal.PtrToStringUni(info.Bypass),
+                settings?.GetValue("ProxyEnable") as int?,
+                settings?.GetValue("ProxyServer") as string,
+                settings?.GetValue("ProxyOverride") as string,
+                policy?.GetValue("ProxySettingsPerUser") as int?,
+                edgeProxy is not null,
+                edgeProxy,
+                chromeProxy is not null,
+                chromeProxy,
+                firefoxPolicyPresent,
+                firefoxMode,
+                firefoxLocked,
+                firefoxHttpProxy,
+                firefoxUseAllProtocols,
+                firefoxSslProxy,
+                firefoxPassthrough);
         }
         finally { if (info.Proxy != IntPtr.Zero) GlobalFree(info.Proxy); if (info.Bypass != IntPtr.Zero) GlobalFree(info.Bypass); }
     }
@@ -71,6 +118,7 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
         }
         WriteBrowserPolicy(EdgePolicy,value.EdgePolicyPresent,value.EdgeProxySettings);
         WriteBrowserPolicy(ChromePolicy,value.ChromePolicyPresent,value.ChromeProxySettings);
+        WriteFirefoxPolicy(value);
         if (!succeeded)
         {
             var actual=Read();
@@ -85,6 +133,24 @@ public sealed class WinHttpProxyStore : IWindowsProxyStore
         using var key=Registry.LocalMachine.CreateSubKey(path,true) ?? throw new IOException($"Unable to open browser proxy policy: {path}");
         if (present.Value && settings is not null)key.SetValue("ProxySettings",settings,RegistryValueKind.String);
         else key.DeleteValue("ProxySettings",false);
+    }
+
+    private static void WriteFirefoxPolicy(ProxySnapshot value)
+    {
+        if (!value.FirefoxPolicyPresent.HasValue) return;
+        using var key = Registry.LocalMachine.CreateSubKey(FirefoxProxyPolicy, true) ?? throw new IOException("Unable to open Firefox proxy policy");
+        WriteValue(key, "Mode", value.FirefoxPolicyPresent.Value ? value.FirefoxMode : null, RegistryValueKind.String);
+        WriteValue(key, "Locked", value.FirefoxPolicyPresent.Value ? value.FirefoxLocked : null, RegistryValueKind.DWord);
+        WriteValue(key, "HTTPProxy", value.FirefoxPolicyPresent.Value ? value.FirefoxHttpProxy : null, RegistryValueKind.String);
+        WriteValue(key, "UseHTTPProxyForAllProtocols", value.FirefoxPolicyPresent.Value ? value.FirefoxUseHttpProxyForAllProtocols : null, RegistryValueKind.DWord);
+        WriteValue(key, "SSLProxy", value.FirefoxPolicyPresent.Value ? value.FirefoxSslProxy : null, RegistryValueKind.String);
+        WriteValue(key, "Passthrough", value.FirefoxPolicyPresent.Value ? value.FirefoxPassthrough : null, RegistryValueKind.String);
+    }
+
+    private static void WriteValue(RegistryKey key, string name, object? value, RegistryValueKind kind)
+    {
+        if (value is null) key.DeleteValue(name, false);
+        else key.SetValue(name, value, kind);
     }
 }
 
@@ -112,7 +178,28 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
             var baseline = await LoadOrCaptureBaselineAsync(ct);
             var proxy=$"{desired.Host}:{desired.Port}";
             var browserPolicy=JsonSerializer.Serialize(new Dictionary<string,string>{{"ProxyMode","fixed_servers"},{"ProxyServer",proxy},{"ProxyBypassList",string.Join(',',desired.Bypass)}});
-            var expected = desired.Enabled ? new ProxySnapshot(true, proxy, string.Join(';', desired.Bypass), baseline.BrowserProxyEnable, baseline.BrowserProxy, baseline.BrowserBypass, baseline.ProxySettingsPerUser, true, browserPolicy, true, browserPolicy) : baseline;
+            var semicolonBypass = string.Join(';', desired.Bypass);
+            var expected = desired.Enabled
+                ? new ProxySnapshot(
+                    true,
+                    proxy,
+                    semicolonBypass,
+                    1,
+                    proxy,
+                    semicolonBypass,
+                    0,
+                    true,
+                    browserPolicy,
+                    true,
+                    browserPolicy,
+                    true,
+                    "manual",
+                    1,
+                    proxy,
+                    1,
+                    proxy,
+                    string.Join(',', desired.Bypass))
+                : baseline;
             var actual = store.Read();
             var drift = !Equivalent(actual, expected);
             var versionChanged = previous?.AppliedVersion != desired.Version;
@@ -139,10 +226,23 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         if (File.Exists(paths.ProxyBaselinePath))
         {
             var savedBaseline=JsonSerializer.Deserialize<ProxySnapshot>(await File.ReadAllTextAsync(paths.ProxyBaselinePath,ct),Json) ?? throw new InvalidDataException("Proxy baseline is invalid");
-            if (!savedBaseline.EdgePolicyPresent.HasValue || !savedBaseline.ChromePolicyPresent.HasValue)
+            if (!savedBaseline.EdgePolicyPresent.HasValue || !savedBaseline.ChromePolicyPresent.HasValue || !savedBaseline.FirefoxPolicyPresent.HasValue)
             {
                 var current=store.Read();
-                savedBaseline=savedBaseline with { EdgePolicyPresent=current.EdgePolicyPresent,EdgeProxySettings=current.EdgeProxySettings,ChromePolicyPresent=current.ChromePolicyPresent,ChromeProxySettings=current.ChromeProxySettings };
+                savedBaseline=savedBaseline with
+                {
+                    EdgePolicyPresent=current.EdgePolicyPresent,
+                    EdgeProxySettings=current.EdgeProxySettings,
+                    ChromePolicyPresent=current.ChromePolicyPresent,
+                    ChromeProxySettings=current.ChromeProxySettings,
+                    FirefoxPolicyPresent=current.FirefoxPolicyPresent,
+                    FirefoxMode=current.FirefoxMode,
+                    FirefoxLocked=current.FirefoxLocked,
+                    FirefoxHttpProxy=current.FirefoxHttpProxy,
+                    FirefoxUseHttpProxyForAllProtocols=current.FirefoxUseHttpProxyForAllProtocols,
+                    FirefoxSslProxy=current.FirefoxSslProxy,
+                    FirefoxPassthrough=current.FirefoxPassthrough
+                };
                 await File.WriteAllTextAsync(paths.ProxyBaselinePath,JsonSerializer.Serialize(savedBaseline,Json),ct);
             }
             return savedBaseline;
@@ -156,7 +256,25 @@ public sealed class ProxyConfigurationManager(IWindowsProxyStore store, AgentPat
         return baseline;
     }
 
-    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) => left.Enabled == right.Enabled && string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) && left.EdgePolicyPresent == right.EdgePolicyPresent && string.Equals(left.EdgeProxySettings ?? "",right.EdgeProxySettings ?? "",StringComparison.Ordinal) && left.ChromePolicyPresent == right.ChromePolicyPresent && string.Equals(left.ChromeProxySettings ?? "",right.ChromeProxySettings ?? "",StringComparison.Ordinal);
+    private static bool Equivalent(ProxySnapshot left, ProxySnapshot right) =>
+        left.Enabled == right.Enabled &&
+        string.Equals(left.Proxy ?? "", right.Proxy ?? "", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(left.Bypass ?? "", right.Bypass ?? "", StringComparison.OrdinalIgnoreCase) &&
+        left.BrowserProxyEnable == right.BrowserProxyEnable &&
+        string.Equals(left.BrowserProxy ?? "", right.BrowserProxy ?? "", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(left.BrowserBypass ?? "", right.BrowserBypass ?? "", StringComparison.OrdinalIgnoreCase) &&
+        left.ProxySettingsPerUser == right.ProxySettingsPerUser &&
+        left.EdgePolicyPresent == right.EdgePolicyPresent &&
+        string.Equals(left.EdgeProxySettings ?? "",right.EdgeProxySettings ?? "",StringComparison.Ordinal) &&
+        left.ChromePolicyPresent == right.ChromePolicyPresent &&
+        string.Equals(left.ChromeProxySettings ?? "",right.ChromeProxySettings ?? "",StringComparison.Ordinal) &&
+        left.FirefoxPolicyPresent == right.FirefoxPolicyPresent &&
+        string.Equals(left.FirefoxMode ?? "", right.FirefoxMode ?? "", StringComparison.OrdinalIgnoreCase) &&
+        left.FirefoxLocked == right.FirefoxLocked &&
+        string.Equals(left.FirefoxHttpProxy ?? "", right.FirefoxHttpProxy ?? "", StringComparison.OrdinalIgnoreCase) &&
+        left.FirefoxUseHttpProxyForAllProtocols == right.FirefoxUseHttpProxyForAllProtocols &&
+        string.Equals(left.FirefoxSslProxy ?? "", right.FirefoxSslProxy ?? "", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(left.FirefoxPassthrough ?? "", right.FirefoxPassthrough ?? "", StringComparison.OrdinalIgnoreCase);
 
     public static async Task RestoreBaselineAsync(IWindowsProxyStore store, AgentPaths paths, CancellationToken ct)
     {

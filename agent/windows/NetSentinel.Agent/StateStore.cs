@@ -4,11 +4,14 @@ namespace NetSentinel.Agent;
 
 public sealed class AgentPaths
 {
-    public AgentPaths(string? root = null)
+    public AgentPaths(string? root = null, bool ensureDirectories = true)
     {
         Root = root ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetSentinel", "Agent");
-        Directory.CreateDirectory(Root);
-        Directory.CreateDirectory(LogDirectory);
+        if (ensureDirectories)
+        {
+            Directory.CreateDirectory(Root);
+            Directory.CreateDirectory(LogDirectory);
+        }
     }
     public string Root { get; }
     public string LogDirectory => Path.Combine(Root, "Logs");
@@ -18,6 +21,7 @@ public sealed class AgentPaths
     public string BootstrapTokenPath => Path.Combine(Root, "bootstrap.dpapi");
     public string PairingSecretPath => Path.Combine(Root, "pairing.dpapi");
     public string ProxyBaselinePath => Path.Combine(Root, "proxy-baseline.json");
+    public string PreviousStatePath => Path.Combine(Root, "state.previous-server.json");
 }
 
 public sealed class StateStore(AgentPaths paths)

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security.Principal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -9,14 +10,26 @@ namespace NetSentinel.Agent;
 
 public static class Program
 {
+    [STAThread]
     public static async Task<int> Main(string[] args)
     {
-        var paths = new AgentPaths();
-        if (args.FirstOrDefault()?.Equals("status", StringComparison.OrdinalIgnoreCase) == true)
+        if (args.FirstOrDefault()?.Equals("gui", StringComparison.OrdinalIgnoreCase) == true)
+            return RunControlPanel();
+        var statusCommand = args.FirstOrDefault()?.Equals("status", StringComparison.OrdinalIgnoreCase) == true;
+        var paths = new AgentPaths(ensureDirectories: !statusCommand);
+        if (statusCommand)
         {
-            var state = await new StateStore(paths).LoadAsync(CancellationToken.None);
-            Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.PairingCode, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion, ProxyManagementEnabled = state.Proxy?.CurrentState == "configured", Proxy = state.Proxy }, new JsonSerializerOptions { WriteIndented = true }));
-            return 0;
+            try
+            {
+                var state = await new StateStore(paths).LoadAsync(CancellationToken.None);
+                Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.PairingCode, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion, ProxyManagementEnabled = state.Proxy?.CurrentState == "configured", Proxy = state.Proxy }, new JsonSerializerOptions { WriteIndented = true }));
+                return 0;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine("Detailed Agent status is protected. Run this command as an administrator.");
+                return 3;
+            }
         }
         if (args.FirstOrDefault()?.Equals("restore-proxy", StringComparison.OrdinalIgnoreCase) == true)
         {
@@ -25,7 +38,7 @@ public static class Program
             return 0;
         }
         if (args.FirstOrDefault()?.Equals("configure", StringComparison.OrdinalIgnoreCase) == true)
-            return await Configure(args.Skip(1).ToArray(), paths);
+            return await ConfigureAsync(args.Skip(1).ToArray(), paths);
 
         Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.File(Path.Combine(paths.LogDirectory, "agent-.log"), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14, fileSizeLimitBytes: 10 * 1024 * 1024, rollOnFileSizeLimit: true).CreateLogger();
         try
@@ -56,7 +69,7 @@ public static class Program
         finally { await Log.CloseAndFlushAsync(); }
     }
 
-    private static async Task<int> Configure(string[] args, AgentPaths paths)
+    internal static async Task<int> ConfigureAsync(string[] args, AgentPaths paths)
     {
         var serverIndex = Array.IndexOf(args, "--server");
         var server = serverIndex >= 0 && serverIndex + 1 < args.Length ? args[serverIndex + 1] : null;
@@ -65,8 +78,14 @@ public static class Program
         var portalApproval = args.Contains("--portal-approval");
         var modeIndex = Array.IndexOf(args, "--control-mode");
         var requestedControlMode = modeIndex >= 0 && modeIndex + 1 < args.Length ? args[modeIndex + 1].ToUpperInvariant() : "MONITOR_ONLY";
-        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || (uri.Scheme == "http" && !allowHttp) || (!portalApproval && string.IsNullOrWhiteSpace(token)) || requestedControlMode is not ("MONITOR_ONLY" or "WEB_CONTROLLED")) { Console.Error.WriteLine("configure requires --server HTTPS_URL and either --portal-approval or --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
-        await File.WriteAllTextAsync(paths.ConfigurationPath, JsonSerializer.Serialize(new { Agent = new { ServerUrl = server, AllowHttp = allowHttp, RequestedControlMode = requestedControlMode } }, new JsonSerializerOptions { WriteIndented = true }));
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || !IsValidManagementServer(uri, allowHttp) || (!portalApproval && string.IsNullOrWhiteSpace(token)) || requestedControlMode is not ("MONITOR_ONLY" or "WEB_CONTROLLED")) { Console.Error.WriteLine("configure requires --server HTTPS_URL and either --portal-approval or --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
+        var previousServer = ReadConfiguredServer(paths.ConfigurationPath);
+        if (previousServer is not null && !SameManagementAuthority(previousServer, uri))
+            await ResetForManagementServerChangeAsync(paths);
+        var configuration = JsonSerializer.Serialize(new { Agent = new { ServerUrl = uri.ToString().TrimEnd('/'), AllowHttp = allowHttp, RequestedControlMode = requestedControlMode } }, new JsonSerializerOptions { WriteIndented = true });
+        var temporaryConfiguration = paths.ConfigurationPath + ".tmp";
+        await File.WriteAllTextAsync(temporaryConfiguration, configuration);
+        File.Move(temporaryConfiguration, paths.ConfigurationPath, true);
         var secretStore = new DpapiSecretStore(paths);
         if (!string.IsNullOrWhiteSpace(token)) await secretStore.SaveBootstrapTokenAsync(token, CancellationToken.None);
         if (portalApproval)
@@ -80,6 +99,69 @@ public static class Program
             }
         }
         Console.WriteLine(portalApproval ? "Configuration saved; portal approval pairing will start with the service." : "Configuration saved; enrollment token is DPAPI-protected.");
+        return 0;
+    }
+
+    internal static Uri? ReadConfiguredServer(string configurationPath)
+    {
+        if (!File.Exists(configurationPath)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(configurationPath));
+            var value = document.RootElement.GetProperty("Agent").GetProperty("ServerUrl").GetString();
+            return Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri : null;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    internal static bool IsValidManagementServer(Uri uri, bool allowHttp) =>
+        uri.Scheme is "https" or "http" &&
+        (uri.Scheme != "http" || allowHttp) &&
+        string.IsNullOrEmpty(uri.UserInfo) &&
+        string.IsNullOrEmpty(uri.Query) &&
+        string.IsNullOrEmpty(uri.Fragment);
+
+    internal static bool SameManagementAuthority(Uri left, Uri right) =>
+        left.Scheme.Equals(right.Scheme, StringComparison.OrdinalIgnoreCase) &&
+        left.IdnHost.Equals(right.IdnHost, StringComparison.OrdinalIgnoreCase) &&
+        left.Port == right.Port &&
+        left.AbsolutePath.TrimEnd('/').Equals(right.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
+
+    private static async Task ResetForManagementServerChangeAsync(AgentPaths paths)
+    {
+        await ProxyConfigurationManager.RestoreBaselineAsync(new WinHttpProxyStore(), paths, CancellationToken.None);
+        if (File.Exists(paths.StatePath)) File.Copy(paths.StatePath, paths.PreviousStatePath, true);
+        await new DpapiSecretStore(paths).DeleteAllAsync(CancellationToken.None);
+        if (File.Exists(paths.StatePath)) File.Delete(paths.StatePath);
+        if (File.Exists(paths.ProxyBaselinePath)) File.Delete(paths.ProxyBaselinePath);
+        await new StateStore(paths).SaveAsync(new LocalState(Guid.NewGuid(), Enrollment: "NotEnrolled", AgentVersion: AgentVersion.Current), CancellationToken.None);
+        Console.WriteLine("Management server changed; old enrollment was archived and a fresh portal pairing will start.");
+    }
+
+    private static int RunControlPanel()
+    {
+        if (!OperatingSystem.IsWindows()) return 2;
+        var identity = WindowsIdentity.GetCurrent();
+        if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
+        {
+            try
+            {
+                var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Agent executable path is unavailable");
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(executable, "gui") { UseShellExecute = true, Verb = "runas" });
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Administrator approval is required: {ex.Message}");
+                return 3;
+            }
+        }
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        Application.Run(new AgentControlForm(new AgentPaths()));
         return 0;
     }
 }

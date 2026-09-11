@@ -39,6 +39,32 @@ public sealed class AgentTests : IDisposable
     }
 
     [Fact]
+    public void Read_only_paths_do_not_create_protected_directories()
+    {
+        var readOnlyRoot = Path.Combine(root, "missing");
+        _ = new AgentPaths(readOnlyRoot, ensureDirectories: false);
+        Assert.False(Directory.Exists(readOnlyRoot));
+    }
+
+    [Theory]
+    [InlineData("https://server.example", false, true)]
+    [InlineData("http://192.0.2.10:8080", true, true)]
+    [InlineData("http://192.0.2.10:8080", false, false)]
+    [InlineData("https://user:secret@server.example", false, false)]
+    [InlineData("https://server.example?token=secret", false, false)]
+    public void Management_server_validation_rejects_unsafe_urls(string value, bool allowHttp, bool expected)
+    {
+        Assert.Equal(expected, Program.IsValidManagementServer(new Uri(value), allowHttp));
+    }
+
+    [Fact]
+    public void Management_server_comparison_normalizes_trailing_slash_but_not_api_path()
+    {
+        Assert.True(Program.SameManagementAuthority(new Uri("https://server.example"), new Uri("https://SERVER.example/")));
+        Assert.False(Program.SameManagementAuthority(new Uri("https://server.example/api"), new Uri("https://server.example/")));
+    }
+
+    [Fact]
     public async Task Dpapi_machine_store_never_writes_plaintext_secret()
     {
         var paths = new AgentPaths(root);
@@ -167,11 +193,13 @@ public sealed class AgentTests : IDisposable
         var applied=await manager.ReconcileAsync(desired,null,default);
         Assert.Equal(1,store.Writes);Assert.Equal(1,applied.AppliedVersion);Assert.True(File.Exists(paths.ProxyBaselinePath));
         Assert.True(store.Value.EdgePolicyPresent);Assert.True(store.Value.ChromePolicyPresent);Assert.Contains("\"ProxyMode\":\"fixed_servers\"",store.Value.EdgeProxySettings);
-        Assert.Equal(0,store.Value.BrowserProxyEnable);Assert.Equal("legacy:8080",store.Value.BrowserProxy);
+        Assert.Equal(1,store.Value.BrowserProxyEnable);Assert.Equal("proxy.test:3128",store.Value.BrowserProxy);Assert.Equal(0,store.Value.ProxySettingsPerUser);
+        Assert.True(store.Value.FirefoxPolicyPresent);Assert.Equal("manual",store.Value.FirefoxMode);Assert.Equal(1,store.Value.FirefoxLocked);
+        Assert.Equal("proxy.test:3128",store.Value.FirefoxHttpProxy);Assert.Equal("proxy.test:3128",store.Value.FirefoxSslProxy);
         var unchanged=await manager.ReconcileAsync(desired,applied,default);
         Assert.Equal(1,store.Writes);Assert.Equal("no-change",unchanged.LastApplyResult);
         var disabled=await manager.ReconcileAsync(new(false,null,null,[],"disabled",2),unchanged,default);
-        Assert.Equal(2,store.Writes);Assert.False(store.Value.Enabled);Assert.Equal(2,disabled.AppliedVersion);
+        Assert.Equal(2,store.Writes);Assert.Equal(baseline,store.Value);Assert.Equal(2,disabled.AppliedVersion);
         store.Value=new(true,"manual:9999",null);
         var drift=await manager.ReconcileAsync(new(true,"proxy.test",8080,["<local>"],"configured",3),disabled,default);
         Assert.True(drift.DriftDetected);Assert.Equal("proxy.test:8080",store.Value.Proxy);

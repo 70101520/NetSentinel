@@ -1,5 +1,5 @@
 #define MyAppName "NetSentinel Agent"
-#define MyAppVersion "0.7.0"
+#define MyAppVersion "0.8.0"
 #define MyAppPublisher "NetSentinel"
 #define MyAppExeName "NetSentinel.Agent.exe"
 
@@ -25,6 +25,10 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Source: "NetSentinel.Agent\bin\Release\net8.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "install-paired-agent.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall-agent.ps1"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\NetSentinel Agent Settings"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; WorkingDir: "{app}"
+Name: "{commondesktop}\NetSentinel Agent Settings"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; WorkingDir: "{app}"
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\uninstall-agent.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
