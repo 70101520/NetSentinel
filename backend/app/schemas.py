@@ -142,6 +142,25 @@ class DeviceAssignment(BaseModel):
     group_name:str|None=Field(None,max_length=100)
     department:str|None=Field(None,max_length=100)
 
+class AgentMaintenancePasswordInput(BaseModel):
+    password:str=Field(min_length=14,max_length=200)
+
+class AgentUninstallCommandInput(BaseModel):
+    confirm_hostname:str=Field(min_length=1,max_length=255)
+    remove_identity:bool=True
+    reason:str|None=Field(None,max_length=200)
+
+class AgentCommandAckInput(BaseModel):
+    status:str
+    message:str|None=Field(None,max_length=300)
+
+    @field_validator("status")
+    @classmethod
+    def valid_command_status(cls,value):
+        value=value.strip().upper()
+        if value not in {"ACKNOWLEDGED","FAILED"}:raise ValueError("status must be ACKNOWLEDGED or FAILED")
+        return value
+
 class DeviceControlModeInput(BaseModel):
     control_mode:str
 

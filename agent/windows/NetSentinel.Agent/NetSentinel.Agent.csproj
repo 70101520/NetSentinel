@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>NetSentinel.Agent</AssemblyName>
     <RootNamespace>NetSentinel.Agent</RootNamespace>
-    <Version>0.8.0</Version>
+    <Version>0.9.0</Version>
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
   <ItemGroup>

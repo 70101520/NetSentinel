@@ -34,6 +34,9 @@ public sealed class ManagementClient(HttpClient http)
     }
 
     public async Task<ProxyConfiguration?> GetConfigurationAsync(string credential, CancellationToken ct)
+        => (await GetAgentConfigurationAsync(credential,ct))?.Proxy;
+
+    public async Task<AgentConfiguration?> GetAgentConfigurationAsync(string credential, CancellationToken ct)
     {
         using var message = new HttpRequestMessage(HttpMethod.Get, "api/v1/agents/config");
         message.Headers.Add("X-Agent-Credential", credential);
@@ -47,12 +50,34 @@ public sealed class ManagementClient(HttpClient http)
             {
                 var host = http.BaseAddress?.Host ?? throw new InvalidDataException("Management server host is unavailable");
                 var bypass=new[]{"localhost","127.0.0.1",host}.Concat(envelope.Proxy.Bypass).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                return new ProxyConfiguration(true, host, 3128, bypass, "configured", envelope.Proxy.Version);
+                return new AgentConfiguration(new ProxyConfiguration(true, host, 3128, bypass, "configured", envelope.Proxy.Version),envelope.Maintenance);
             }
-            return envelope.Proxy;
+            return new AgentConfiguration(envelope.Proxy,envelope.Maintenance);
         }
         catch (HttpRequestException) { return null; }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return null; }
+    }
+
+    public async Task<SignedCommandEnvelope?> GetPendingCommandAsync(string credential,CancellationToken ct)
+    {
+        using var message=new HttpRequestMessage(HttpMethod.Get,"api/v1/agents/commands/pending");message.Headers.Add("X-Agent-Credential",credential);
+        try
+        {
+            using var response=await http.SendAsync(message,ct);
+            if(response.StatusCode==HttpStatusCode.NoContent)return null;
+            if(response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)throw new UnauthorizedAccessException("Agent credential rejected during command sync");
+            if(!response.IsSuccessStatusCode)return null;
+            return await response.Content.ReadFromJsonAsync<SignedCommandEnvelope>(cancellationToken:ct);
+        }
+        catch(HttpRequestException){return null;}
+        catch(TaskCanceledException) when(!ct.IsCancellationRequested){return null;}
+    }
+
+    public async Task<bool> AcknowledgeCommandAsync(Guid commandId,string status,string? detail,string credential,CancellationToken ct)
+    {
+        using var message=new HttpRequestMessage(HttpMethod.Post,$"api/v1/agents/commands/{commandId}/ack"){Content=JsonContent.Create(new{status,message=detail})};message.Headers.Add("X-Agent-Credential",credential);
+        try{using var response=await http.SendAsync(message,ct);return response.IsSuccessStatusCode;}
+        catch(HttpRequestException){return false;}catch(TaskCanceledException) when(!ct.IsCancellationRequested){return false;}
     }
 
     public async Task<EnrollResponse> EnrollAsync(EnrollRequest request, CancellationToken ct)

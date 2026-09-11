@@ -2,15 +2,16 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record
+from app.agent_command_security import password_verifier, signed_envelope
 from app.config import settings
 from app.db import get_db
-from app.models import AgentEnrollment, AgentPairingRequest, AssetMetricSample, Device, DeviceProxyConfiguration, DeviceStateTransition, User, WebDirectBypassRule, WebTrustedNetwork
-from app.schemas import DeviceAssignment, DeviceControlModeInput, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
+from app.models import AgentCommand, AgentEnrollment, AgentPairingRequest, AssetMetricSample, Device, DeviceProxyConfiguration, DeviceStateTransition, User, WebDirectBypassRule, WebTrustedNetwork
+from app.schemas import AgentCommandAckInput, AgentMaintenancePasswordInput, AgentUninstallCommandInput, DeviceAssignment, DeviceControlModeInput, EnrollRequest, Heartbeat, PairingApprovalInput, PairingClaimInput, PairingRequestInput, ProxyConfigurationInput
 from app.security import require
 from app.service_auth import derive_secret
 
@@ -147,12 +148,15 @@ async def enroll(request: Request, body: EnrollRequest, db: AsyncSession = Depen
     return {"device_id": device.id, "agent_identity": device.agent_identity, "credential": f"{device.id}.{raw}", "server": {"heartbeat_interval_seconds": settings.agent_heartbeat_interval_seconds}}
 
 
-async def authenticate_credential(x_agent_credential: str, db: AsyncSession, expected_device_id: uuid.UUID | None = None):
+def credential_parts(value:str):
     try:
-        device_id, raw = x_agent_credential.split(".", 1)
-        device_id = uuid.UUID(device_id)
+        device_id,raw=value.split(".",1)
+        return uuid.UUID(device_id),raw
     except (ValueError, AttributeError):
         raise HTTPException(401, "Invalid agent credential")
+
+async def authenticate_credential(x_agent_credential: str, db: AsyncSession, expected_device_id: uuid.UUID | None = None):
+    device_id, raw = credential_parts(x_agent_credential)
     device = await db.scalar(select(Device).where(Device.id == device_id).with_for_update())
     if not device or (expected_device_id and device.id != expected_device_id) or device.credential_revoked_at or device.enrollment_state != "ENROLLED" or not device.credential_hash or not secrets.compare_digest(derive_secret(raw), device.credential_hash):
         raise HTTPException(401, "Invalid agent credential")
@@ -178,7 +182,57 @@ async def agent_config(db: AsyncSession = Depends(get_db), device: Device = Depe
             domains.append(rule.domain)
             if rule.include_subdomains:domains.append("*."+rule.domain)
         payload["proxy"]["bypass"]=list(dict.fromkeys([*payload["proxy"]["bypass"],*trusted,*domains]))
-    return {"control_mode":device.control_mode,**payload}
+    return {"control_mode":device.control_mode,"maintenance":{"version":device.maintenance_version,"uninstall_password_verifier":device.uninstall_password_verifier,"recovery_code_verifier":device.recovery_code_verifier},**payload}
+
+@router.get("/commands/pending")
+async def pending_agent_command(x_agent_credential:str=Header(...),db:AsyncSession=Depends(get_db)):
+    device=await authenticate_credential(x_agent_credential,db);_,raw=credential_parts(x_agent_credential)
+    now=datetime.now(timezone.utc)
+    rows=(await db.scalars(select(AgentCommand).where(AgentCommand.device_id==device.id,AgentCommand.status=="PENDING").order_by(AgentCommand.issued_at))).all()
+    changed=False;item=None
+    for candidate in rows:
+        if candidate.expires_at<=now:candidate.status="EXPIRED";changed=True
+        elif item is None:item=candidate
+    if changed:await db.commit()
+    if item is None:return Response(status_code=204)
+    payload={"command_id":str(item.id),"device_id":str(device.id),"command_type":item.command_type,"nonce":item.nonce,"issued_at":item.issued_at.astimezone(timezone.utc).isoformat().replace("+00:00","Z"),"expires_at":item.expires_at.astimezone(timezone.utc).isoformat().replace("+00:00","Z"),**item.payload}
+    return signed_envelope(payload,raw)
+
+@router.post("/commands/{command_id}/ack")
+async def acknowledge_agent_command(command_id:uuid.UUID,body:AgentCommandAckInput,db:AsyncSession=Depends(get_db),device:Device=Depends(authenticated_agent_header)):
+    item=await db.get(AgentCommand,command_id,with_for_update=True)
+    if not item or item.device_id!=device.id:raise HTTPException(404,"Agent command not found")
+    if item.status not in {"PENDING",body.status}:raise HTTPException(409,"Agent command is no longer pending")
+    item.status=body.status;item.result_message=body.message
+    if body.status=="ACKNOWLEDGED":item.acknowledged_at=datetime.now(timezone.utc)
+    await db.commit();return {"id":item.id,"status":item.status}
+
+@router.put("/devices/{device_id}/maintenance-password")
+async def set_maintenance_password(device_id:uuid.UUID,body:AgentMaintenancePasswordInput,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    device=await db.get(Device,device_id,with_for_update=True)
+    if not device:raise HTTPException(404,"Device not found")
+    recovery=secrets.token_urlsafe(24)
+    device.uninstall_password_verifier=password_verifier(body.password);device.recovery_code_verifier=password_verifier(recovery);device.maintenance_version+=1
+    await record(db,request,user,"agent.maintenance.password.update","device",str(device.id),"success",new={"maintenance_version":device.maintenance_version,"recovery_rotated":True})
+    await db.commit();return {"device_id":device.id,"maintenance_version":device.maintenance_version,"recovery_code":recovery}
+
+@router.post("/devices/{device_id}/commands/uninstall",status_code=201)
+async def request_remote_uninstall(device_id:uuid.UUID,body:AgentUninstallCommandInput,request:Request,db:AsyncSession=Depends(get_db),user:User=Depends(require("agents.manage"))):
+    device=await db.get(Device,device_id,with_for_update=True)
+    if not device:raise HTTPException(404,"Device not found")
+    if not secrets.compare_digest(device.hostname.casefold(),body.confirm_hostname.strip().casefold()):raise HTTPException(422,"Hostname confirmation does not match")
+    now=datetime.now(timezone.utc)
+    existing=await db.scalar(select(AgentCommand).where(AgentCommand.device_id==device.id,AgentCommand.command_type=="UNINSTALL",AgentCommand.status=="PENDING",AgentCommand.expires_at>now))
+    if existing:raise HTTPException(409,"A remote uninstall command is already pending")
+    item=AgentCommand(device_id=device.id,command_type="UNINSTALL",nonce=secrets.token_urlsafe(32),payload={"remove_identity":body.remove_identity,"reason":body.reason},status="PENDING",issued_at=now,expires_at=now+timedelta(minutes=10),requested_by=user.id);db.add(item);await db.flush()
+    await record(db,request,user,"agent.command.uninstall.create","device",str(device.id),"success",new={"command_id":str(item.id),"expires_at":item.expires_at.isoformat(),"remove_identity":body.remove_identity})
+    await db.commit();return {"id":item.id,"status":item.status,"expires_at":item.expires_at}
+
+@router.get("/devices/{device_id}/commands")
+async def list_agent_commands(device_id:uuid.UUID,db:AsyncSession=Depends(get_db),_:User=Depends(require("agents.manage"))):
+    if not await db.get(Device,device_id):raise HTTPException(404,"Device not found")
+    rows=(await db.scalars(select(AgentCommand).where(AgentCommand.device_id==device_id).order_by(AgentCommand.issued_at.desc()).limit(20))).all()
+    return [{"id":x.id,"command_type":x.command_type,"status":x.status,"issued_at":x.issued_at,"expires_at":x.expires_at,"acknowledged_at":x.acknowledged_at,"result_message":x.result_message} for x in rows]
 
 @router.put("/control-mode")
 async def sync_agent_control_mode(body:DeviceControlModeInput,db:AsyncSession=Depends(get_db),device:Device=Depends(authenticated_agent_header)):

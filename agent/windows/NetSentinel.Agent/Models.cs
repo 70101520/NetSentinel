@@ -30,7 +30,26 @@ public sealed record LocalState(
     string? PairingCode = null);
 
 public sealed record ProxyConfiguration(bool Enabled, string? Host, int? Port, string[] Bypass, string Mode, long Version);
-public sealed record ProxyConfigurationEnvelope([property: JsonPropertyName("proxy")] ProxyConfiguration Proxy, [property: JsonPropertyName("control_mode")] string ControlMode = "MONITOR_ONLY");
+public sealed record ProxyConfigurationEnvelope([property: JsonPropertyName("proxy")] ProxyConfiguration Proxy, [property: JsonPropertyName("control_mode")] string ControlMode = "MONITOR_ONLY", [property: JsonPropertyName("maintenance")] MaintenanceConfiguration? Maintenance = null);
+public sealed record AgentConfiguration(ProxyConfiguration Proxy, MaintenanceConfiguration? Maintenance);
+public sealed record MaintenanceConfiguration(
+    [property: JsonPropertyName("version")] long Version,
+    [property: JsonPropertyName("uninstall_password_verifier")] string? UninstallPasswordVerifier,
+    [property: JsonPropertyName("recovery_code_verifier")] string? RecoveryCodeVerifier);
+public sealed record SignedCommandEnvelope(
+    [property: JsonPropertyName("payload")] string Payload,
+    [property: JsonPropertyName("signature")] string Signature,
+    [property: JsonPropertyName("algorithm")] string Algorithm,
+    [property: JsonPropertyName("key_context")] string KeyContext);
+public sealed record AgentCommandPayload(
+    [property: JsonPropertyName("command_id")] Guid CommandId,
+    [property: JsonPropertyName("device_id")] Guid DeviceId,
+    [property: JsonPropertyName("command_type")] string CommandType,
+    [property: JsonPropertyName("nonce")] string Nonce,
+    [property: JsonPropertyName("issued_at")] DateTimeOffset IssuedAt,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt,
+    [property: JsonPropertyName("remove_identity")] bool RemoveIdentity,
+    [property: JsonPropertyName("reason")] string? Reason);
 public sealed record ProxyRuntimeStatus(
     [property: JsonPropertyName("desired_version")] long DesiredVersion = 1,
     [property: JsonPropertyName("applied_version")] long? AppliedVersion = null,
@@ -110,4 +129,4 @@ public sealed record HeartbeatRequest(
     [property: JsonPropertyName("proxy_status")] ProxyRuntimeStatus? ProxyStatus = null,
     [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics = null);
 
-public static class AgentVersion { public const string Current = "0.8.0"; }
+public static class AgentVersion { public const string Current = "0.9.0"; }

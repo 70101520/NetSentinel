@@ -66,4 +66,14 @@ if (-not $service) {
 }
 
 Start-Service NetSentinelAgent
+$maintenance = Get-Service NetSentinelMaintenance -ErrorAction SilentlyContinue
+if (-not $maintenance) {
+    sc.exe create NetSentinelMaintenance binPath= "`"$exe`" maintenance-service" start= auto obj= LocalSystem | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Maintenance service registration failed' }
+    sc.exe description NetSentinelMaintenance "NetSentinel signed-command maintenance broker" | Out-Null
+} else {
+    sc.exe config NetSentinelMaintenance binPath= "`"$exe`" maintenance-service" start= auto obj= LocalSystem | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Maintenance service update failed' }
+}
+Start-Service NetSentinelMaintenance
 Write-Host 'NetSentinel Agent installed. Portal administrator approval is now required.'

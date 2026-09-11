@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text;
+using System.Security.Cryptography;
+using System.Text.Json;
 using NetSentinel.Agent;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -62,6 +64,27 @@ public sealed class AgentTests : IDisposable
     {
         Assert.True(Program.SameManagementAuthority(new Uri("https://server.example"), new Uri("https://SERVER.example/")));
         Assert.False(Program.SameManagementAuthority(new Uri("https://server.example/api"), new Uri("https://server.example/")));
+    }
+
+    [Fact]
+    public void Signed_command_verifier_rejects_tampering_wrong_device_and_expiry()
+    {
+        var deviceId=Guid.NewGuid();var commandId=Guid.NewGuid();var now=DateTimeOffset.UtcNow;const string raw="agent-secret-value";var credential=$"{deviceId}.{raw}";
+        var payload=JsonSerializer.SerializeToUtf8Bytes(new{command_id=commandId,device_id=deviceId,command_type="UNINSTALL",nonce=new string('a',32),issued_at=now.AddSeconds(-5),expires_at=now.AddMinutes(5),remove_identity=true,reason="test"},new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var context=Encoding.UTF8.GetBytes("NetSentinel.Agent.Command.v1\0");var signed=context.Concat(payload).ToArray();var signature=HMACSHA256.HashData(Encoding.UTF8.GetBytes(raw),signed);
+        var envelope=new SignedCommandEnvelope(Base64Url(payload),Base64Url(signature),"HMAC-SHA256","agent-credential-v1");
+        Assert.Equal(commandId,AgentCommandVerifier.Verify(envelope,credential,deviceId,now).CommandId);
+        Assert.Throws<InvalidDataException>(()=>AgentCommandVerifier.Verify(envelope,credential,Guid.NewGuid(),now));
+        Assert.Throws<InvalidDataException>(()=>AgentCommandVerifier.Verify(envelope with{Signature=Base64Url(new byte[32])},credential,deviceId,now));
+        Assert.Throws<InvalidDataException>(()=>AgentCommandVerifier.Verify(envelope,credential,deviceId,now.AddMinutes(6)));
+    }
+
+    [Fact]
+    public void Maintenance_password_verifier_accepts_only_the_matching_secret()
+    {
+        const string password="Strong maintenance password 2026!";var salt=RandomNumberGenerator.GetBytes(16);const int iterations=100_000;
+        var digest=Rfc2898DeriveBytes.Pbkdf2(password,salt,iterations,HashAlgorithmName.SHA256,32);var verifier=$"pbkdf2-sha256${iterations}${Base64Url(salt)}${Base64Url(digest)}";
+        Assert.True(PasswordVerifier.Verify(password,verifier));Assert.False(PasswordVerifier.Verify("wrong",verifier));Assert.False(PasswordVerifier.Verify(password,"invalid"));
     }
 
     [Fact]
@@ -267,4 +290,5 @@ public sealed class AgentTests : IDisposable
         public ProxySnapshot Read()=>new(false,null,null);
         public void Write(ProxySnapshot value)=>throw new IOException("simulated apply failure");
     }
+    private static string Base64Url(byte[] value)=>Convert.ToBase64String(value).TrimEnd('=').Replace('+','-').Replace('/','_');
 }

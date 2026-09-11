@@ -3,9 +3,14 @@
 param([switch]$RemoveIdentity)
 $ErrorActionPreference = 'Stop'
 $service = Get-Service NetSentinelAgent -ErrorAction SilentlyContinue
+$maintenanceService = Get-Service NetSentinelMaintenance -ErrorAction SilentlyContinue
 $install = Join-Path $env:ProgramFiles 'NetSentinel\Agent'
-if ($service -and $service.Status -ne 'Stopped') { Stop-Service NetSentinelAgent -Force }
 $executable = Join-Path $install 'NetSentinel.Agent.exe'
+if (-not (Test-Path -LiteralPath $executable)) { throw 'NetSentinel Agent authorization component is missing' }
+& $executable consume-uninstall-authorization
+if ($LASTEXITCODE -ne 0) { throw 'Uninstall authorization is missing or expired' }
+if ($service -and $service.Status -ne 'Stopped') { Stop-Service NetSentinelAgent -Force }
+if ($maintenanceService -and $maintenanceService.Status -ne 'Stopped') { Stop-Service NetSentinelMaintenance -Force }
 $baseline = Join-Path $env:ProgramData 'NetSentinel\Agent\proxy-baseline.json'
 if ((Test-Path -LiteralPath $executable) -and (Test-Path -LiteralPath $baseline)) { & $executable restore-proxy; if ($LASTEXITCODE -ne 0) { throw 'Proxy baseline restoration failed; uninstall stopped safely' } }
 $winHttpPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections'
@@ -28,7 +33,9 @@ $winHttpKey.Dispose()
             $proxyKey.SetAccessControl($proxyAcl)
         } finally { $proxyKey.Dispose() }
     }
-}if ($service) { sc.exe delete NetSentinelAgent | Out-Null }
+}
+if ($service) { sc.exe delete NetSentinelAgent | Out-Null }
+if ($maintenanceService) { sc.exe delete NetSentinelMaintenance | Out-Null }
 if (Test-Path $install) { Remove-Item -LiteralPath $install -Recurse -Force }
 if ($RemoveIdentity) {
     $data = Join-Path $env:ProgramData 'NetSentinel\Agent'

@@ -55,7 +55,23 @@ class Device(Base):
     last_heartbeat_ip: Mapped[str|None]=mapped_column(INET); current_status: Mapped[str]=mapped_column(String(10),default="OFFLINE")
     enrollment_state: Mapped[str]=mapped_column(String(20),default="ENROLLED"); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))
     control_mode: Mapped[str]=mapped_column(String(20),default="MONITOR_ONLY")
+    uninstall_password_verifier: Mapped[str|None]=mapped_column(Text)
+    recovery_code_verifier: Mapped[str|None]=mapped_column(Text)
+    maintenance_version: Mapped[int]=mapped_column(Integer,default=0)
     metadata_: Mapped[dict]=mapped_column("metadata", JSONB, default=dict)
+class AgentCommand(Base):
+    __tablename__="agent_commands"
+    id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4)
+    device_id: Mapped[uuid.UUID]=mapped_column(ForeignKey("devices.id",ondelete="CASCADE"),index=True)
+    command_type: Mapped[str]=mapped_column(String(30))
+    nonce: Mapped[str]=mapped_column(String(64),unique=True)
+    payload: Mapped[dict]=mapped_column(JSONB,default=dict)
+    status: Mapped[str]=mapped_column(String(20),default="PENDING",index=True)
+    issued_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True))
+    requested_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id"))
+    acknowledged_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    result_message: Mapped[str|None]=mapped_column(String(300))
 class AgentEnrollment(Base):
     __tablename__="agent_enrollments"
     id: Mapped[uuid.UUID]=mapped_column(UUID(as_uuid=True),primary_key=True,default=uuid.uuid4); token_hash: Mapped[str]=mapped_column(String(64),unique=True); expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True)); used_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); created_by: Mapped[uuid.UUID|None]=mapped_column(ForeignKey("users.id")); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now()); revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); max_uses: Mapped[int]=mapped_column(Integer,default=1); use_count: Mapped[int]=mapped_column(Integer,default=0); group_name: Mapped[str|None]=mapped_column(String(100)); department: Mapped[str|None]=mapped_column(String(100))

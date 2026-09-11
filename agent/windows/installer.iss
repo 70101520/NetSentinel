@@ -1,5 +1,5 @@
 #define MyAppName "NetSentinel Agent"
-#define MyAppVersion "0.8.0"
+#define MyAppVersion "0.9.0"
 #define MyAppPublisher "NetSentinel"
 #define MyAppExeName "NetSentinel.Agent.exe"
 
@@ -25,6 +25,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Source: "NetSentinel.Agent\bin\Release\net8.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "install-paired-agent.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall-agent.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "maintenance-uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\NetSentinel Agent Settings"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; WorkingDir: "{app}"
@@ -38,6 +39,16 @@ var
   ServerPage: TInputQueryWizardPage;
   LabHttpPage: TInputOptionWizardPage;
   ModePage: TInputOptionWizardPage;
+
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{app}\{#MyAppExeName}'), 'authorize-uninstall', '', SW_SHOW,
+    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  if not Result then
+    MsgBox('NetSentinel uninstall was not authorized. Use the device password or recovery code from the portal.', mbError, MB_OK);
+end;
 
 procedure InitializeWizard;
 begin

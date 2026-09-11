@@ -13,6 +13,12 @@ public static class Program
     [STAThread]
     public static async Task<int> Main(string[] args)
     {
+        if (args.FirstOrDefault()?.Equals("maintenance-service", StringComparison.OrdinalIgnoreCase) == true)
+            return await RunMaintenanceServiceAsync(args);
+        if (args.FirstOrDefault()?.Equals("authorize-uninstall", StringComparison.OrdinalIgnoreCase) == true)
+            return await AuthorizeUninstallAsync();
+        if (args.FirstOrDefault()?.Equals("consume-uninstall-authorization", StringComparison.OrdinalIgnoreCase) == true)
+            return await UninstallAuthorization.ConsumeAsync(new AgentPaths(),CancellationToken.None)?0:4;
         if (args.FirstOrDefault()?.Equals("gui", StringComparison.OrdinalIgnoreCase) == true)
             return RunControlPanel();
         var statusCommand = args.FirstOrDefault()?.Equals("status", StringComparison.OrdinalIgnoreCase) == true;
@@ -66,6 +72,7 @@ public static class Program
             }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseProxy = false });
             builder.Services.AddSingleton<IWindowsProxyStore, WinHttpProxyStore>();
             builder.Services.AddSingleton<ProxyConfigurationManager>();
+            builder.Services.AddSingleton<MaintenanceSettingsStore>();
             builder.Services.AddHostedService<AgentWorker>();
             builder.Services.AddSerilog();
             await builder.Build().RunAsync();
@@ -169,5 +176,29 @@ public static class Program
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new AgentControlForm(new AgentPaths()));
         return 0;
+    }
+
+    private static async Task<int> RunMaintenanceServiceAsync(string[] args)
+    {
+        Log.Logger=new LoggerConfiguration().MinimumLevel.Information().WriteTo.File(Path.Combine(new AgentPaths().LogDirectory,"maintenance-.log"),rollingInterval:RollingInterval.Day,retainedFileCountLimit:14).CreateLogger();
+        try
+        {
+            var builder=Host.CreateApplicationBuilder(args);builder.Services.AddWindowsService(value=>value.ServiceName="NetSentinel Maintenance");
+            builder.Services.AddSingleton<AgentPaths>();builder.Services.AddSingleton<StateStore>();builder.Services.AddSingleton<ISecretStore,DpapiSecretStore>();builder.Services.AddHostedService<MaintenanceWorker>();builder.Services.AddSerilog();
+            await builder.Build().RunAsync();return 0;
+        }
+        catch(Exception ex){Log.Fatal(ex,"Maintenance broker terminated unexpectedly");return 1;}
+        finally{await Log.CloseAndFlushAsync();}
+    }
+
+    private static async Task<int> AuthorizeUninstallAsync()
+    {
+        if(!OperatingSystem.IsWindows())return 2;
+        var identity=WindowsIdentity.GetCurrent();if(!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))return 3;
+        Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+        using var dialog=new UninstallAuthorizationForm();
+        if(dialog.ShowDialog()!=DialogResult.OK)return 4;
+        if(await UninstallAuthorization.CreateAsync(dialog.SuppliedSecret,new AgentPaths(),CancellationToken.None))return 0;
+        MessageBox.Show("Password or recovery code is invalid, or maintenance policy has not synchronized yet.","Uninstall denied",MessageBoxButtons.OK,MessageBoxIcon.Error);return 4;
     }
 }

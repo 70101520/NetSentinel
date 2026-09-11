@@ -22,6 +22,10 @@ public sealed class AgentPaths
     public string PairingSecretPath => Path.Combine(Root, "pairing.dpapi");
     public string ProxyBaselinePath => Path.Combine(Root, "proxy-baseline.json");
     public string PreviousStatePath => Path.Combine(Root, "state.previous-server.json");
+    public string MaintenanceConfigurationPath => Path.Combine(Root, "maintenance.json");
+    public string MaintenanceRequestPath => Path.Combine(Root, "maintenance-request.json");
+    public string MaintenanceScriptPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NetSentinel", "Agent", "maintenance-uninstall.ps1");
+    public string UninstallAuthorizationPath => Path.Combine(Root, "uninstall-authorization.json");
 }
 
 public sealed class StateStore(AgentPaths paths)

@@ -11,6 +11,7 @@ public sealed class AgentWorker(
     ISecretStore secrets,
     ISystemSnapshot system,
     ProxyConfigurationManager proxyManager,
+    MaintenanceSettingsStore maintenance,
     IOptions<AgentOptions> options,
     ILogger<AgentWorker> logger) : BackgroundService
 {
@@ -57,12 +58,28 @@ public sealed class AgentWorker(
             try
             {
                 if (!await client.SyncControlModeAsync(credential!,options.Value.RequestedControlMode,stoppingToken)) logger.LogWarning("Installer-selected control mode could not be synchronized");
-                var desired = await client.GetConfigurationAsync(credential!, stoppingToken);
+                var desired = await client.GetAgentConfigurationAsync(credential!, stoppingToken);
                 if (desired is not null)
                 {
-                    logger.LogDebug("Proxy configuration version {Version} received", desired.Version);
-                    state = state with { Proxy = await proxyManager.ReconcileAsync(desired, state.Proxy, stoppingToken) };
+                    logger.LogDebug("Proxy configuration version {Version} received", desired.Proxy.Version);
+                    state = state with { Proxy = await proxyManager.ReconcileAsync(desired.Proxy, state.Proxy, stoppingToken) };
                     await states.SaveAsync(state, stoppingToken);
+                    if(desired.Maintenance is not null)await maintenance.SaveAsync(desired.Maintenance,stoppingToken);
+                }
+                var envelope=await client.GetPendingCommandAsync(credential!,stoppingToken);
+                if(envelope is not null)
+                {
+                    try
+                    {
+                        var command=AgentCommandVerifier.Verify(envelope,credential!,state.DeviceId!.Value,DateTimeOffset.UtcNow);
+                        await maintenance.StageCommandAsync(envelope,stoppingToken);
+                        if(!await client.AcknowledgeCommandAsync(command.CommandId,"ACKNOWLEDGED","Verified and staged for the maintenance service",credential!,stoppingToken))throw new IOException("Command acknowledgement failed");
+                        logger.LogWarning("Authenticated maintenance command {CommandId} staged",command.CommandId);
+                    }
+                    catch(InvalidDataException ex)
+                    {
+                        logger.LogError("Agent maintenance command rejected: {Reason}",ex.Message);
+                    }
                 }
             }
             catch (UnauthorizedAccessException)
