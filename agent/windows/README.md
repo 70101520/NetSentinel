@@ -1,6 +1,6 @@
 # NetSentinel Windows Agent service foundation
 
-This directory contains enrollment, machine-bound identity/credential persistence, authenticated heartbeat, recovery scheduling, bounded diagnostics, reproducible service installation, and the WinHTTP proxy-configuration foundation. It does not enforce browser proxy settings, inspect traffic, inventory software, implement tamper protection, or expose a local control port. Proxy scope, baseline restoration, management-plane bypass, and limitations are documented in `docs/windows-agent-proxy-configuration.md`.
+This directory contains enrollment, machine-bound identity/credential persistence, authenticated heartbeat, recovery scheduling, bounded diagnostics, browser and WinHTTP proxy enforcement, an administrator Agent Settings UI, and signed maintenance commands. Full-control mode applies mandatory Edge, Chrome and Firefox proxy policy plus machine WinINET/WinHTTP state; HTTPS visibility remains destination-domain only and does not decrypt content.
 
 ## Runtime and service model
 
@@ -26,7 +26,9 @@ For a controlled HTTP-only LAN test, installation additionally requires `-AllowH
 
 Logs roll daily or at 10 MiB and retain at most 14 files. Status contains only enrollment state, device ID, reachability, timestamps, failure count, and version.
 
-Uninstall with `.\uninstall-agent.ps1`; identity is retained. Use `-RemoveIdentity` only to deliberately remove protected state and credentials.
+Interactive uninstall is gated by the per-device password or current one-time recovery code configured in the portal. The password and recovery code are never stored: the server and Agent receive only PBKDF2-SHA256 verifiers. Portal remote uninstall is a ten-minute device-scoped HMAC-signed command, verified by the LocalService Agent and again by the separate LocalSystem maintenance broker before proxy restoration and removal. The main monitoring Agent remains LocalService.
+
+The protection boundary is standard Windows users and non-elevated processes. A trusted local Windows administrator ultimately controls the machine and cannot be made cryptographically subordinate to an endpoint application without a separately managed EDR/tamper-protection trust root.
 
 ## Scheduling and recovery
 
