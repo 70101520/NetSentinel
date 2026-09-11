@@ -24,6 +24,26 @@ Upgrade an existing enrolled service with `./update-agent.ps1 -SourceDirectory .
 
 For a controlled HTTP-only LAN test, installation additionally requires `-AllowHttp`; certificate validation is never disabled. Configure the Windows machine to trust the organizational/public CA for production HTTPS.
 
+## Free internal lab code signing
+
+This is private organizational trust, not a publicly trusted certificate. Generate the stable lab certificate once on a controlled Windows administrator workstation:
+
+```powershell
+.\signing\New-NetSentinelLabSigningCertificate.ps1
+```
+
+The ignored `certificates/netsentinel-lab` directory contains the private PFX and two files used to create the repository secrets `NETSENTINEL_LAB_SIGNING_PFX_BASE64` and `NETSENTINEL_LAB_SIGNING_PASSWORD`. Never commit, upload as an artifact, email, or place those private files on the portal. After both GitHub Actions secrets are configured, CI signs the published Agent executable and Inno Setup executable with the same identity, verifies both signatures, publishes `SHA256SUMS.txt` with Setup, and publishes the safe public `.cer` as a separate trust-certificate artifact.
+
+The generator restricts this directory to the current Windows user, SYSTEM, and local Administrators, and refuses to overwrite existing signing material unless an intentional `-Force` rotation is requested.
+
+CI publishes the safe public certificate separately as `NetSentinel-Lab-Trust-Certificate`, so it can be downloaded and trusted before downloading the executable artifact. Before running a lab-signed installer, distribute that `.cer` through a trusted administrator channel and trust it on each managed test endpoint:
+
+```powershell
+.\signing\Install-NetSentinelLabTrust.ps1 -CertificatePath .\NetSentinel-Lab-Code-Signing.cer
+```
+
+Review and accept the confirmation prompt. For domain computers, deploy the same public certificate using Group Policy to **Trusted Root Certification Authorities** and **Trusted Publishers**. Never deploy the private PFX. Public/unmanaged distribution still requires a certificate from a public trust provider.
+
 Logs roll daily or at 10 MiB and retain at most 14 files. Status contains only enrollment state, device ID, reachability, timestamps, failure count, and version.
 
 Interactive uninstall is gated by the per-device password or current one-time recovery code configured in the portal. The password and recovery code are never stored: the server and Agent receive only PBKDF2-SHA256 verifiers. Portal remote uninstall is a ten-minute device-scoped HMAC-signed command, verified by the LocalService Agent and again by the separate LocalSystem maintenance broker before proxy restoration and removal. The main monitoring Agent remains LocalService.

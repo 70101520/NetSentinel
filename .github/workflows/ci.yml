@@ -44,8 +44,47 @@ jobs:
       - run: dotnet build NetSentinel.Agent.sln -c Release --no-restore
       - run: dotnet test NetSentinel.Agent.sln -c Release --no-build
       - run: dotnet publish NetSentinel.Agent/NetSentinel.Agent.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+      - name: Import optional internal lab signing certificate
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.NETSENTINEL_LAB_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.NETSENTINEL_LAB_SIGNING_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_BASE64) -xor [string]::IsNullOrWhiteSpace($env:SIGNING_PFX_PASSWORD)) {
+            throw 'Both NetSentinel lab signing secrets must be configured together.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_BASE64)) {
+            'NETSENTINEL_SIGNING_ENABLED=false' | Add-Content $env:GITHUB_ENV
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'netsentinel-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx,[Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          $password = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password -Exportable:$false
+          if (-not $certificate) { throw 'The lab signing certificate could not be imported.' }
+          "NETSENTINEL_SIGNING_THUMBPRINT=$($certificate.Thumbprint)" | Add-Content $env:GITHUB_ENV
+          'NETSENTINEL_SIGNING_ENABLED=true' | Add-Content $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force installer-output | Out-Null
+          $publicCertificate = 'installer-output\NetSentinel-Lab-Code-Signing.cer'
+          Export-Certificate -Cert $certificate -FilePath $publicCertificate -Type CERT | Out-Null
+          Import-Certificate -FilePath $publicCertificate -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Import-Certificate -FilePath $publicCertificate -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+      - name: Sign published Agent executable
+        if: env.NETSENTINEL_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        run: ./signing/Sign-NetSentinelWindowsArtifact.ps1 -CertificateThumbprint $env:NETSENTINEL_SIGNING_THUMBPRINT -Path ./NetSentinel.Agent/bin/Release/net8.0-windows/win-x64/publish/NetSentinel.Agent.exe
       - run: choco install innosetup --no-progress -y
       - run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss'
+      - name: Sign and verify installer
+        if: env.NETSENTINEL_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        run: ./signing/Sign-NetSentinelWindowsArtifact.ps1 -CertificateThumbprint $env:NETSENTINEL_SIGNING_THUMBPRINT -Path (Get-ChildItem ./installer-output/NetSentinel-Agent-Setup-*.exe | Select-Object -ExpandProperty FullName)
+      - name: Publish installer checksum
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem ./installer-output/NetSentinel-Agent-Setup-*.exe | Select-Object -First 1
+          $hash = (Get-FileHash -Algorithm SHA256 $setup.FullName).Hash.ToLowerInvariant()
+          "$hash  $($setup.Name)" | Set-Content ./installer-output/SHA256SUMS.txt -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
           name: NetSentinel-Agent-win-x64
@@ -54,5 +93,24 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: NetSentinel-Agent-Setup-win-x64
-          path: agent/windows/installer-output/NetSentinel-Agent-Setup-*.exe
+          path: |
+            agent/windows/installer-output/NetSentinel-Agent-Setup-*.exe
+            agent/windows/installer-output/SHA256SUMS.txt
           if-no-files-found: error
+      - name: Upload internal lab trust certificate
+        if: env.NETSENTINEL_SIGNING_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetSentinel-Lab-Trust-Certificate
+          path: agent/windows/installer-output/NetSentinel-Lab-Code-Signing.cer
+          if-no-files-found: error
+      - name: Remove signing material from runner
+        if: always() && env.NETSENTINEL_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'netsentinel-signing.pfx') -Force -ErrorAction SilentlyContinue
+          if ($env:NETSENTINEL_SIGNING_THUMBPRINT) {
+            Remove-Item "Cert:\CurrentUser\My\$env:NETSENTINEL_SIGNING_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+            Remove-Item "Cert:\CurrentUser\Root\$env:NETSENTINEL_SIGNING_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+            Remove-Item "Cert:\CurrentUser\TrustedPublisher\$env:NETSENTINEL_SIGNING_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+          }
