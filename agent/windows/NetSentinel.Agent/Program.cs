@@ -21,6 +21,7 @@ public static class Program
         {
             try
             {
+                await using (var probe = new FileStream(paths.StatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) { }
                 var state = await new StateStore(paths).LoadAsync(CancellationToken.None);
                 Console.WriteLine(JsonSerializer.Serialize(new { service = "Query SCM with Get-Service NetSentinelAgent", state.Enrollment, state.DeviceId, state.PairingCode, state.Server, state.LastHeartbeat, state.LastSuccess, state.ConsecutiveFailures, state.AgentVersion, ProxyManagementEnabled = state.Proxy?.CurrentState == "configured", Proxy = state.Proxy }, new JsonSerializerOptions { WriteIndented = true }));
                 return 0;
@@ -29,6 +30,11 @@ public static class Program
             {
                 Console.Error.WriteLine("Detailed Agent status is protected. Run this command as an administrator.");
                 return 3;
+            }
+            catch (FileNotFoundException)
+            {
+                Console.Error.WriteLine("Agent state is not initialized. Install or configure the Agent first.");
+                return 2;
             }
         }
         if (args.FirstOrDefault()?.Equals("restore-proxy", StringComparison.OrdinalIgnoreCase) == true)
