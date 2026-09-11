@@ -62,6 +62,8 @@ if ($ServerUrl.StartsWith('http://',[StringComparison]::OrdinalIgnoreCase) -and 
 New-Item -ItemType Directory -Force -Path $data,$logs | Out-Null
 try {
     Write-InstallLog 'Installation/configuration started.'
+    $ServerUrl = $ServerUrl.Trim()
+    $RequestedControlMode = $RequestedControlMode.Trim().ToUpperInvariant()
     $script:InstallStage = 'stop-existing-services'
     Stop-AgentService 'NetSentinelAgent'
     Stop-AgentService 'NetSentinelMaintenance'
@@ -103,8 +105,11 @@ $script:InstallStage = 'browser-policy-acl'
 $script:InstallStage = 'agent-configuration'
 $configure = @('configure','--server',$ServerUrl,'--portal-approval','--control-mode',$RequestedControlMode)
 if ($AllowHttp) { $configure += '--allow-http' }
-& $exe @configure
-if ($LASTEXITCODE -ne 0) { throw "Agent configuration failed with exit code $LASTEXITCODE" }
+Write-InstallLog ("Configuring scheme={0}, host={1}, port={2}, allowHttp={3}, mode={4}" -f ([Uri]$ServerUrl).Scheme,([Uri]$ServerUrl).Host,([Uri]$ServerUrl).Port,[bool]$AllowHttp,$RequestedControlMode)
+$configurationOutput = & $exe @configure 2>&1
+$configurationExitCode = $LASTEXITCODE
+if ($configurationOutput) { Write-InstallLog (($configurationOutput | ForEach-Object { $_.ToString().Trim() }) -join ' ') }
+if ($configurationExitCode -ne 0) { throw "Agent configuration failed with exit code $configurationExitCode" }
 
 $script:InstallStage = 'service-registration'
 Install-AgentService 'NetSentinelAgent' $exe '' 'NT AUTHORITY\LocalService' 'NetSentinel endpoint management service'

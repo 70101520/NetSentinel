@@ -1,5 +1,5 @@
 #define MyAppName "NetSentinel Agent"
-#define MyAppVersion "0.9.1"
+#define MyAppVersion "0.9.2"
 #define MyAppPublisher "NetSentinel"
 #define MyAppExeName "NetSentinel.Agent.exe"
 
@@ -90,8 +90,8 @@ begin
     begin
       if LabHttpPage.Values[0] then Value := 'http://' + Value
       else Value := 'https://' + Value;
-      ServerPage.Values[0] := Value;
     end;
+    ServerPage.Values[0] := Value;
     if (Pos('"', Value) > 0) or (Pos(' ', Value) > 0) then
     begin
       MsgBox('The server address cannot contain quotes or spaces.', mbError, MB_OK);

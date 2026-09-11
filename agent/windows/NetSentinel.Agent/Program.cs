@@ -85,12 +85,12 @@ public static class Program
     internal static async Task<int> ConfigureAsync(string[] args, AgentPaths paths)
     {
         var serverIndex = Array.IndexOf(args, "--server");
-        var server = serverIndex >= 0 && serverIndex + 1 < args.Length ? args[serverIndex + 1] : null;
+        var server = serverIndex >= 0 && serverIndex + 1 < args.Length ? args[serverIndex + 1].Trim() : null;
         var allowHttp = args.Contains("--allow-http");
         var token = args.Contains("--enrollment-token-stdin") ? await Console.In.ReadLineAsync() : null;
         var portalApproval = args.Contains("--portal-approval");
         var modeIndex = Array.IndexOf(args, "--control-mode");
-        var requestedControlMode = modeIndex >= 0 && modeIndex + 1 < args.Length ? args[modeIndex + 1].ToUpperInvariant() : "MONITOR_ONLY";
+        var requestedControlMode = modeIndex >= 0 && modeIndex + 1 < args.Length ? args[modeIndex + 1].Trim().ToUpperInvariant() : "MONITOR_ONLY";
         if (!Uri.TryCreate(server, UriKind.Absolute, out var uri) || !IsValidManagementServer(uri, allowHttp) || (!portalApproval && string.IsNullOrWhiteSpace(token)) || requestedControlMode is not ("MONITOR_ONLY" or "WEB_CONTROLLED")) { Console.Error.WriteLine("configure requires --server HTTPS_URL and either --portal-approval or --enrollment-token-stdin; use --allow-http only for controlled LAN tests"); return 2; }
         var previousServer = ReadConfiguredServer(paths.ConfigurationPath);
         if (previousServer is not null && !SameManagementAuthority(previousServer, uri))

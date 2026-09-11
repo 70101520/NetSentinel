@@ -67,6 +67,17 @@ public sealed class AgentTests : IDisposable
     }
 
     [Fact]
+    public async Task Configure_normalizes_wizard_whitespace()
+    {
+        var result = await Program.ConfigureAsync(
+            new[] { "--server", " http://192.0.2.10:8080 ", "--portal-approval", "--control-mode", " web_controlled ", "--allow-http" },
+            new AgentPaths(root));
+
+        Assert.Equal(0, result);
+        Assert.Equal(new Uri("http://192.0.2.10:8080"), Program.ReadConfiguredServer(Path.Combine(root, "agent.json")));
+    }
+
+    [Fact]
     public void Signed_command_verifier_rejects_tampering_wrong_device_and_expiry()
     {
         var deviceId=Guid.NewGuid();var commandId=Guid.NewGuid();var now=DateTimeOffset.UtcNow;const string raw="agent-secret-value";var credential=$"{deviceId}.{raw}";
