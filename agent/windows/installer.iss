@@ -1,5 +1,5 @@
 #define MyAppName "NetSentinel Agent"
-#define MyAppVersion "0.9.0"
+#define MyAppVersion "0.9.1"
 #define MyAppPublisher "NetSentinel"
 #define MyAppExeName "NetSentinel.Agent.exe"
 
@@ -111,6 +111,7 @@ var
 begin
   Result := '';
   Exec(ExpandConstant('{sys}\net.exe'), 'stop NetSentinelAgent', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\net.exe'), 'stop NetSentinelMaintenance', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function ReadPairingCode(): String;
@@ -147,7 +148,7 @@ begin
     else Params := Params + ' -RequestedControlMode MONITOR_ONLY';
     if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params,
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
-      RaiseException('NetSentinel Agent service configuration failed.');
+      RaiseException('NetSentinel Agent service configuration failed. See C:\ProgramData\NetSentinel\Agent\install.log for the exact stage and error.');
     PairingCode := '';
     for Attempt := 1 to 15 do
     begin

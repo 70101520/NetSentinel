@@ -14,7 +14,7 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         if (args.FirstOrDefault()?.Equals("maintenance-service", StringComparison.OrdinalIgnoreCase) == true)
-            return await RunMaintenanceServiceAsync(args);
+            return await RunMaintenanceServiceAsync();
         if (args.FirstOrDefault()?.Equals("authorize-uninstall", StringComparison.OrdinalIgnoreCase) == true)
             return await AuthorizeUninstallAsync();
         if (args.FirstOrDefault()?.Equals("consume-uninstall-authorization", StringComparison.OrdinalIgnoreCase) == true)
@@ -178,12 +178,14 @@ public static class Program
         return 0;
     }
 
-    private static async Task<int> RunMaintenanceServiceAsync(string[] args)
+    private static async Task<int> RunMaintenanceServiceAsync()
     {
         Log.Logger=new LoggerConfiguration().MinimumLevel.Information().WriteTo.File(Path.Combine(new AgentPaths().LogDirectory,"maintenance-.log"),rollingInterval:RollingInterval.Day,retainedFileCountLimit:14).CreateLogger();
         try
         {
-            var builder=Host.CreateApplicationBuilder(args);builder.Services.AddWindowsService(value=>value.ServiceName="NetSentinel Maintenance");
+            // SCM owns this process mode; the selector is not an application
+            // configuration argument and must not reach the generic host parser.
+            var builder=Host.CreateApplicationBuilder(Array.Empty<string>());builder.Services.AddWindowsService(value=>value.ServiceName="NetSentinel Maintenance");
             builder.Services.AddSingleton<AgentPaths>();builder.Services.AddSingleton<StateStore>();builder.Services.AddSingleton<ISecretStore,DpapiSecretStore>();builder.Services.AddHostedService<MaintenanceWorker>();builder.Services.AddSerilog();
             await builder.Build().RunAsync();return 0;
         }
